@@ -1,0 +1,26 @@
+# 다운로드한 모델과 실행별 계획·기록·생성 이미지
+/models/
+/runs/
+
+# 작업용 입력. 공유용 예제 엑셀과 합성 가이드는 Git에 포함한다.
+/pilot/*.xlsx
+!/pilot/*.example.xlsx
+/pilot/guides/*
+!/pilot/guides/living01.png
+/pilot/refs/
+~$*.xlsx
+
+# Python 가상환경과 빌드·테스트 캐시
+/.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+/build/
+/dist/
+.pytest_cache/
+.ruff_cache/
+
+# 로컬 환경 변수와 공유용 설정 예시
+.env
+.env.*
+!.env.example

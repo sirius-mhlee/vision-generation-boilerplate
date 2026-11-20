@@ -1,10 +1,10 @@
 # vision-generation-boilerplate
 
-A boilerplate for generating images offline with FLUX.2 [klein] 4B, reference photos, and editing instructions defined in Excel.
+A boilerplate for generating images offline with FLUX.2, reference photos, and editing instructions defined in Excel.
 
 사진과 엑셀의 편집 지시를 받아, 같은 장면에서 장애물의 배치와 환경을 바꾼 PNG를 만드는 로컬 Python CLI입니다. 예를 들어 거실 사진 한 장에서 **빈 바닥 → 전선 추가 → 책상 다리로 전선 가운데 가림**을 차례로 요청하고, 각 단계의 이미지를 꺼내 볼 수 있습니다.
 
-> **구현 전 README 초안입니다.** 아래 명령과 출력은 계획된 사용 예시입니다. 설치 버전, GPU 메모리 사용량, 실제 생성 이미지는 첫 실행에서 검증할 항목입니다.
+> **구현 전 README 초안입니다.** 아래 명령과 출력은 계획된 사용 예시입니다. 설치 버전, GPU 메모리 사용량, 실제 생성 이미지는 첫 실행에서 검증할 항목입니다. [단계별 구현 계획](docs/IMPLEMENTATION_STEPS.md)
 
 ## 실행 환경과 최초 설치
 
