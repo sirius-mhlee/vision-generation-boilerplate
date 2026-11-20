@@ -1,0 +1,8 @@
+# Install the CUDA builds of torch and torchvision first, as shown in the README.
+accelerate==1.13.0
+diffusers==0.38.0
+huggingface-hub==0.36.2
+numpy==2.5.4
+Pillow==13.0.0
+safetensors==0.9.0rc1
+transformers==4.57.6

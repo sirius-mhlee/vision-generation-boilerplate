@@ -2,12 +2,14 @@
 /models/
 /runs/
 
-# 작업용 입력. 공유용 예제 엑셀과 합성 가이드는 Git에 포함한다.
+# 작업용 입력. 공유용 예제 엑셀과 아래 합성 사진은 Git에 포함한다.
 /pilot/*.xlsx
 !/pilot/*.example.xlsx
 /pilot/guides/*
 !/pilot/guides/living01.png
-/pilot/refs/
+!/pilot/guides/living01_cable_behind.png
+/pilot/refs/*
+!/pilot/refs/black_cable.jpg
 ~$*.xlsx
 
 # Python 가상환경과 빌드·테스트 캐시
