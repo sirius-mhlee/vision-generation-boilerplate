@@ -1,0 +1,3 @@
+# Installer and build backend for the reference environment.
+pip==24.0
+setuptools==78.1.0

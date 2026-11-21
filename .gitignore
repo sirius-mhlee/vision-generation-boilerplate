@@ -1,15 +1,20 @@
-# 다운로드한 모델과 실행별 계획·기록·생성 이미지
+# 개인 입력, 다운로드한 모델, 실행별 계획·기록·생성 이미지
+/inputs/
 /models/
 /runs/
+/pilot/
 
-# 작업용 입력. 공유용 예제 엑셀과 아래 합성 사진은 Git에 포함한다.
-/pilot/*.xlsx
-!/pilot/*.example.xlsx
-/pilot/guides/*
-!/pilot/guides/living01.png
-!/pilot/guides/living01_cable_behind.png
-/pilot/refs/*
-!/pilot/refs/black_cable.jpg
+# 배포 예제에는 워크북과 거기서 참조하는 PNG만 포함한다.
+/examples/living-room/*
+!/examples/living-room/scenarios.xlsx
+!/examples/living-room/guides/
+/examples/living-room/guides/*
+!/examples/living-room/guides/living01.png
+!/examples/living-room/guides/living01_cable_behind.png
+!/examples/living-room/refs/
+/examples/living-room/refs/*
+!/examples/living-room/refs/black_cable.png
+!/examples/living-room/refs/evening_room.png
 ~$*.xlsx
 
 # Python 가상환경과 빌드·테스트 캐시

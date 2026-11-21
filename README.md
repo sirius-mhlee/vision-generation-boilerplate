@@ -1,33 +1,37 @@
 # vision-generation-boilerplate
 
-A boilerplate for generating independent image variations from a single guide photo per scene using FLUX.2 klein 4B and editing instructions defined in Excel, all offline.
+A boilerplate for offline image editing with FLUX.2 klein 4B using a single Excel sheet to specify a guide image, up to two reference images, and a prompt for each edit.
 
-`vgen`은 장면마다 가이드 사진 한 장을 두고, 엑셀의 편집 지시마다 그 원본을 다시 읽어 PNG 한 장을 만드는 로컬 CLI를 목표로 합니다. 같은 낮 거실에서 빨간 전선, 물결 모양 전선, 마룻바닥, 야간 조명을 각각 요청하면 원본에서 출발한 결과가 네 장 생깁니다. 물체 배치와 가림이 중요할 때는 그 상태가 보이는 사진을 가이드로 준비합니다.
+`vgen`은 엑셀 한 시트에 한 줄씩 적은 요청을 로컬 GPU에서 실행하는 이미지 편집 CLI입니다. 각 행에서 **가이드 이미지**는 편집할 원본입니다. **레퍼런스 이미지**는 필요에 따라 한 장이나 두 장을 지정합니다. 예를 들어 거실 원본에 저녁 방 사진과 전선 사진을 함께 넣고, 배경을 바꾸면서 양말을 전선으로 교체하도록 요청할 수 있습니다. 같은 가이드를 여러 행에 쓰면 각 편집은 그 원본에서 독립적으로 시작합니다.
 
-| 편집 대상 | 거실 가이드에서 확인한 범위 |
-|---|---|
-| 물체 색 | 다리 양옆 전선을 빨갛게 바꾸고 두 단자와 가운데 가림을 유지했습니다. |
-| 물체 형태 | 고리와 물결을 만들었습니다. 전선의 굵기, 굴곡 수, 왼쪽 구간만 바꾸는 지시는 일부 벗어났습니다. |
-| 주변 환경 | 바닥 재질 변경을 검증할 예정입니다. 전선과 가구 배치가 유지되는지도 함께 확인합니다. |
-| 낮·밤과 조명 | 낮 거실을 밤으로 바꾸는 예시를 검증할 예정입니다. 창밖과 실내 조명, 전선의 식별 여부를 확인합니다. |
+## 설치
 
-> **현재 실행할 수 있는 것은 단일 편집 파일럿입니다.** 아래 가이드로 색과 형태를 시험할 수 있습니다. 엑셀을 받는 `vgen prepare`, `generate`, `resume`은 후속 개발 단계입니다. [단계별 구현 계획](docs/IMPLEMENTATION_STEPS.md)
-
-## 실행 환경과 최초 설치
-
-아래 파일럿은 Linux, Python 3.12.3, RTX 5060 Laptop GPU에서 실행했습니다. PyTorch 2.10.0의 CUDA 12.8 빌드와 torchvision 0.25.0을 먼저 설치한 뒤 같은 가상환경에 Diffusers·Transformers와 모델 로딩에 필요한 패키지를 설치합니다. 이미 프로젝트와 `.venv`가 있다면 프로젝트 루트에서 가상환경 활성화부터 시작합니다. [PyTorch 공식 설치 조합](https://pytorch.org/get-started/previous-versions/)
+검증 환경은 Linux x86_64, Python 3.12.3, RTX 5060 Laptop GPU 8GB입니다. 저장소를 받은 뒤 프로젝트 루트에서 가상환경을 만들고 설치 도구부터 고정합니다.
 
 ```bash
 git clone https://github.com/sirius-mhlee/vision-generation-boilerplate.git
 cd vision-generation-boilerplate
 python3.12 -m venv .venv
 source .venv/bin/activate
-python -m pip install torch==2.10.0 torchvision==0.25.0 --index-url https://download.pytorch.org/whl/cu128
-python -m pip install -r requirements/pilot.txt
+python -m pip install -r requirements/bootstrap.lock
+```
+
+엑셀을 검사하고 계획을 만드는 데에는 기본 설치만 있으면 됩니다. 같은 가상환경에 GPU 패키지를 추가할 수 있습니다.
+
+```bash
+python -m pip install --no-build-isolation -r requirements/workbook.txt
+```
+
+이미지까지 생성하려면 CUDA 12.8 빌드를 사용할 수 있는 NVIDIA 드라이버와 GPU가 필요합니다. 다음 명령은 PyTorch 2.10.0+cu128, torchvision 0.25.0+cu128 및 추론에 필요한 전이 의존성을 검증한 버전으로 설치합니다. [패키지 버전과 설치 인덱스](requirements/linux-py312-cu128.lock) · [PyTorch 공식 CUDA 빌드](https://pytorch.org/get-started/previous-versions/)
+
+```bash
+python -m pip install --no-build-isolation -r requirements/linux-py312-cu128.lock -e '.[gpu]'
 python -m pip check
 ```
 
-모델은 인터넷이 되는 컴퓨터에서 한 번 준비합니다. 설치한 `huggingface-hub` 0.36.2의 `hf download`로 아래 리비전을 받습니다. 이미 받아 둔 모델은 그대로 사용하며, 다른 컴퓨터에서 받았다면 폴더를 복사하고 그 경로를 `--model-dir`에 지정합니다. [모델 파일 목록](https://huggingface.co/black-forest-labs/FLUX.2-klein-4B/tree/e7b7dc27f91deacad38e78976d1f2b499d76a294) · [Hugging Face 다운로드 안내](https://huggingface.co/docs/huggingface_hub/en/guides/cli#download-a-specific-revision)
+## 로컬 모델 준비
+
+이미 받은 FLUX.2 klein 4B의 Diffusers 모델은 `models/FLUX.2-klein-4B/`에 두거나 `vgen prepare --model-dir`에 기존 폴더를 지정합니다. 새로 받을 때는 인터넷이 연결된 환경에서 아래 명령을 한 번 실행합니다. [고정한 리비전의 모델 파일](https://huggingface.co/black-forest-labs/FLUX.2-klein-4B/tree/e7b7dc27f91deacad38e78976d1f2b499d76a294)
 
 ```bash
 hf download black-forest-labs/FLUX.2-klein-4B \
@@ -36,116 +40,167 @@ hf download black-forest-labs/FLUX.2-klein-4B \
   --exclude 'flux-2-klein-4b.safetensors'
 ```
 
-`models/FLUX.2-klein-4B/` 아래에 `model_index.json`과 `scheduler/`, `text_encoder/`, `tokenizer/`, `transformer/`, `vae/`가 있어야 합니다. 위 명령은 따로 배포하는 단일 파일 가중치의 중복 다운로드를 생략합니다. [공식 모델 카드](https://huggingface.co/black-forest-labs/FLUX.2-klein-4B)
-
-## 이미 가려진 전선의 색과 모양 바꾸기
-
-빈 바닥 A와 USB-C 참고 사진을 사용해 ImageGen으로 가림이 있는 원본 한 장을 만들었습니다. 이 사진에서 검은 선은 책상 다리 왼쪽 테두리에서 사라지고 오른쪽 테두리에서 다시 보이며, 두 은색 단자가 모두 바닥에 놓여 있습니다. 아래 세 편집은 각각 이 원본 한 장을 로컬 FLUX.2 klein 4B에 입력한 결과입니다. [공통 원본 PNG](pilot/guides/living01_cable_behind.png)
-
-![같은 바닥 영역을 확대한 공통 원본, 빨간색 편집, 왼쪽 고리 편집, 작은 물결 편집](docs/images/pilot-occluded-edits.webp)
-
-| 한글 편집 지시의 의도 | 실제 결과 | 추론부터 저장까지 |
-|---|---|---:|
-| 검은 피복을 빨갛게 바꾸기 | 다리 양옆의 피복과 단자 하우징이 모두 빨갛게 바뀌었습니다. 은색 팁, 바닥 위 경로, 가운데 가림이 유지됐습니다. | 13.07초 |
-| 왼쪽 구간에 둥근 고리 하나 만들기 | 왼쪽에 고리가 생기고 오른쪽 단자가 보입니다. 고리는 원래 전선보다 훨씬 굵고 화면 왼쪽 경계까지 커졌습니다. | 13.12초 |
-| 왼쪽에 같은 굵기로 작은 물결 세 번 만들기 | 양끝과 가운데 가림을 유지하며 물결 모양이 생겼습니다. 왼쪽의 굴곡 수가 세 번을 넘었고 오른쪽 구간도 함께 휘었습니다. | 13.05초 |
-
-세 실행 모두 시드 42, 4스텝, 처리 크기 1024×576이며, `metrics.json`에 기록된 입력 파일의 SHA-256이 일치합니다. 결과 원본은 각 실행 폴더의 `A.png`이며 크기는 모두 1672×941입니다.
-
-프로젝트 루트에서 아래 명령을 실행합니다. 각 명령은 같은 가이드 파일을 다시 읽습니다. 이미 결과 폴더가 있으면 `--out`에 새 경로를 지정합니다.
-
-```bash
-guide_img=pilot/guides/living01_cable_behind.png
-
-.venv/bin/python scripts/pilot_a.py --guide "$guide_img" --seed 42 \
-  --prompt '검은색 케이블의 피복 전체를 선명한 빨간색으로 바꿔 주세요. 케이블의 위치와 모양은 그대로 두세요.' \
-  --out runs/pilot-occluded-color
-
-.venv/bin/python scripts/pilot_a.py --guide "$guide_img" --seed 42 \
-  --prompt '사진 왼쪽에 보이는 검은 케이블의 중간을 바닥 위에서 둥근 고리 하나로 말아 주세요. 두 은색 단자와 오른쪽에 보이는 선은 현재 자리에 두세요.' \
-  --out runs/pilot-occluded-shape
-
-.venv/bin/python scripts/pilot_a.py --guide "$guide_img" --seed 42 \
-  --prompt '왼쪽 은색 단자와 나무 다리 사이의 검은 전선을 같은 얇은 굵기로, 작은 물결이 세 번 이어지도록 구부려 주세요. 양쪽 단자와 오른쪽 전선은 그대로 두세요.' \
-  --out runs/pilot-occluded-wave
-```
-
-<details>
-<summary>가림 원본을 만든 ImageGen 프롬프트</summary>
-
-Edit the first photograph, using the second only for the appearance of the black USB-C cable. Keep the same low camera angle, landscape framing, furniture, wood leg, gray tile and light. Lay exactly one unplugged black USB-C cable flat across the tiles BEHIND the large wooden table leg at right. Its left connector is completely visible on the floor near the middle of the frame, its left lead runs gently rightward and disappears behind the lower LEFT silhouette edge of the wooden leg a little ABOVE its contact with the floor. Its right lead emerges from behind the lower RIGHT silhouette edge and continues across the floor to a clearly visible second silver-tipped connector near the right side, with a generous margin inside the frame. Give both exposed sections enough length to see and edit. The foreground wooden leg occludes the whole central span. The front and side faces of the wood are flawlessly intact, clean and completely bare from top to bottom. The two visible leads never touch the face of the wood or cross the floor in front of it. Two visible connectors total. Photorealistic, no text, no graphics.
-
-</details>
+모델 폴더에 `model_index.json`과 `scheduler/`, `text_encoder/`, `tokenizer/`, `transformer/`, `vae/`가 있어야 합니다. 설치와 모델 준비가 끝나면 오프라인에서 생성·재개할 수 있습니다. 필수 모델 파일이 빠졌다면 오류에 표시된 로컬 경로에 파일을 복원하고 다시 실행하세요.
 
 ## 정식 CLI 사용 예시
 
-아래는 개발 예정인 세 명령으로 거실 가이드 한 장에서 독립적인 PNG 네 장을 만드는 예시입니다.
+아래 명령으로 배포 예제의 다섯 편집을 실행합니다. `prepare --out`에 새 실행 폴더를 지정하고 `generate`에는 그 폴더를 넘깁니다. 실험별로 여러 계획을 미리 준비할 수 있습니다.
+
+```bash
+vgen workbook examples/living-room/scenarios.xlsx
+vgen prepare examples/living-room/scenarios.xlsx --out runs/living01
+vgen generate runs/living01
+```
 
 ### 1. 사진과 엑셀 준비
 
-`pilot/scenarios.xlsx`를 직접 작성하고 사진 경로는 엑셀 폴더 기준으로 적습니다. 이 예시의 가이드는 프로젝트에 포함된 `pilot/guides/living01_cable_behind.png`입니다. 직접 찍은 JPG나 PNG도 사용할 수 있습니다.
+**편집** 시트의 A~F열에 아래 제목을 순서대로 적습니다. `번호`에는 편집 건을 찾거나 정렬할 때 쓸 1 이상의 정수를 적습니다. 중간 번호를 건너뛰어도 됩니다. `편집 ID`는 파일 안에서 고유하며 결과 PNG의 파일명과 작업별 시드를 정하는 데 쓰입니다. 이미지 칸에는 엑셀 폴더 기준의 PNG **상대 경로**를 적습니다. 두 레퍼런스 칸은 각각 비워 둘 수 있습니다. 아래 명령은 저장소에 포함된 예제를 그대로 사용합니다. [예제 엑셀](examples/living-room/scenarios.xlsx)
 
-**장면** 시트에는 장면 ID와 가이드 사진을 적습니다. 공간·가구, 바닥·이음새, 조명은 원본을 설명하고 싶을 때 쓰는 선택 열입니다. 바꾸고 싶은 내용은 편집 시트에 적습니다.
+| 번호 | 편집 ID | 가이드 이미지 | 레퍼런스 이미지 1 | 레퍼런스 이미지 2 | 프롬프트 |
+|---:|---|---|---|---|---|
+| 1 | red | guides/living01_cable_behind.png | | | 전선의 검은 피복을 빨간색으로 바꿔 주세요. |
+| 2 | night | guides/living01_cable_behind.png | | | 낮 거실을 밤으로 바꾸고 책상 옆 조명을 켜 주세요. |
+| 3 | add_cable | guides/living01.png | refs/black_cable.png | | 레퍼런스 사진의 검은 USB-C 전선을 가이드의 노란 양말 옆에 놓아 주세요. |
+| 4 | evening_bg | guides/living01_cable_behind.png | refs/evening_room.png | | 레퍼런스 사진의 따뜻한 색감과 벽 재질을 가이드의 배경에 적용해 주세요. 앞쪽 전선과 책상은 같은 자리에 두세요. |
+| 5 | evening_cable | guides/living01.png | refs/evening_room.png | refs/black_cable.png | 첫 번째 사진의 노란 양말을 사진에서 완전히 지워 주세요. 그 자리에 레퍼런스 2에 보이는 검은 USB-C 케이블 하나만 납작하게 놓아 주세요. 앞쪽 타일에는 검은 선 한 가닥과 양 끝의 은색 단자 두 개만 보입니다. 배경은 레퍼런스 1의 주황빛 벽과 저녁 조명으로 바꿔 주세요. 오른쪽 책상 다리는 유지해 주세요. |
 
-| 장면 ID | 가이드 사진 |
-|---|---|
-| living01 | guides/living01_cable_behind.png |
+다섯 행에 쓰는 가이드 두 장과 레퍼런스 두 장은 모두 프로젝트에 포함되어 있습니다. 입력은 PNG로 읽고, 예제 사진과 편집 결과는 압축 레벨 0으로 저장합니다. [검은 USB-C 전선](examples/living-room/refs/black_cable.png) · [저녁 방](examples/living-room/refs/evening_room.png)
 
-**편집** 시트의 한 행은 모든 장면에 적용할 독립적인 요청 한 건입니다. ID는 사용자가 정합니다. 아래 네 행에서 모델에 전달되는 이미지는 모두 위의 가이드 한 장입니다.
+`red`와 `night`는 가이드만, `add_cable`과 `evening_bg`는 가이드와 레퍼런스 한 장을 읽습니다. `evening_cable`은 **가이드 → 레퍼런스 1(저녁 방) → 레퍼런스 2(전선)** 순서로 세 장을 모델에 한 번에 전달해 PNG 한 장을 만듭니다. 각 레퍼런스에서 무엇을 참고할지는 행의 프롬프트로 정합니다.
 
-| 편집 ID | 편집 지시 |
-|---|---|
-| red | 검은 전선의 피복을 빨간색으로 바꾸고 위치와 모양을 유지해 주세요. |
-| wave | 왼쪽에 보이는 전선을 작은 물결 모양으로 구부리고 단자의 위치를 유지해 주세요. |
-| floor | 회색 타일 바닥을 밝은 나무 마루로 바꾸고 전선과 책상은 같은 자리에 두세요. |
-| night | 같은 거실을 밤으로 바꿔 주세요. 창밖은 어둡고 실내등 아래 전선이 보이게 해 주세요. |
+예제를 검사하면 다섯 행의 번호와 편집 ID, 가이드와 레퍼런스 경로가 표시됩니다. 예를 들어 마지막 행은 다음과 같습니다.
 
-예를 들어 `night`가 읽는 원본에는 검은 전선과 타일이 보입니다. 밤에도 빨간 전선을 원하면 해당 행의 지시에 두 조건을 함께 적습니다.
+```text
+5번 evening_cable (엑셀 6행) | 가이드=guides/living01.png | 레퍼런스 1=refs/evening_room.png | 레퍼런스 2=refs/black_cable.png
+```
+
+자신의 예제는 폴더째 복사한 뒤 엑셀과 PNG를 바꾸세요. `inputs/`, `models/`, `runs/`는 Git에서 제외됩니다.
+
+```bash
+mkdir -p inputs
+cp -r examples/living-room inputs/my-room
+vgen workbook inputs/my-room/scenarios.xlsx
+```
+
+파이썬에서도 `from vgen.workbook import read_workbook`으로 같은 검사를 호출할 수 있습니다. `read_workbook("examples/living-room/scenarios.xlsx")`는 번호·편집 ID와 검증한 입력을 가진 행 목록을 반환합니다.
 
 ### 2. 생성할 계획 확인
 
+엑셀과 사진만 점검할 때는 `vgen workbook examples/living-room/scenarios.xlsx`를 사용합니다. 아래 명령을 바로 실행해도 같은 검사를 거친 뒤 계획을 저장합니다. 모델 가중치는 생성할 때 준비하면 됩니다.
+
 ```bash
-vgen prepare pilot/scenarios.xlsx \
+vgen prepare examples/living-room/scenarios.xlsx \
   --out runs/living01 --repeat 1 --seed 42 \
   --model-dir "$PWD/models/FLUX.2-klein-4B"
 ```
 
 ```text
-장면 1개 × 편집 4개 × 반복 1회 = 예상 PNG 4장
-모든 작업의 입력  guides/living01_cable_behind.png
-저장 위치          runs/living01/images/living01/r001/
-편집별 출력        red.png  wave.png  floor.png  night.png
+편집 5행 × 반복 1회 = 예상 PNG 5장
+저장 위치     runs/living01/images/r001/
+편집별 출력   red.png  night.png  add_cable.png  evening_bg.png  evening_cable.png
+계획 파일     runs/living01/plan.json
 ```
 
-`prepare`는 GPU와 가중치 없이 엑셀과 사진을 확인합니다. `plan.json`에서 작업별 가이드 경로와 SHA-256, 최종 한글 지시, 시드, 출력 경로를 확인합니다. 생성 전에는 엑셀을 수정하고 같은 폴더에서 다시 준비할 수 있습니다. 새 계획의 검사가 끝나면 이전 계획을 교체합니다.
+`vgen prepare <엑셀 경로> --out <실행 폴더>`에서 엑셀 경로와 `--out`은 필수입니다. 가이드·레퍼런스·프롬프트는 엑셀의 각 행에, 아래 옵션은 한 실행 전체에 적용합니다.
+
+| 옵션 | 기본값 | 용도 |
+|---|---|---|
+| `--out` | 필수 | `plan.json`과 결과를 보관할 실행 폴더 |
+| `--repeat` | `1` | 편집별 반복 횟수. 1 이상의 정수이며 5행을 2회 반복하면 10장입니다. |
+| `--seed` | `42` | 작업별 시드를 정하는 기준 정수. 편집 ID와 반복 번호가 같으면 같은 기준 시드에서 같은 작업 시드를 얻습니다. |
+| `--steps` | `4` | 편집 한 건의 노이즈 제거 횟수. 1 이상의 정수입니다. |
+| `--max-edge` | `1024` | 가이드와 레퍼런스를 축소할 때 긴 변의 상한(16~1024 px). 최종 PNG는 가이드 원본 크기로 저장합니다. |
+| `--model-dir` | `models/FLUX.2-klein-4B` | 추론에 사용할 로컬 모델 폴더. 상대 경로는 명령을 실행한 디렉터리 기준입니다. |
+
+이번 버전은 `guidance_scale=1.0`, PNG 압축 레벨 0을 사용합니다. 저장된 계획의 옵션은 `generate`와 `resume`이 그대로 사용합니다.
+
+`plan.json`의 `jobs` 배열에는 반복별로 엑셀 행 순서대로 작업이 들어갑니다.
+
+| 항목 | 계획에서 확인할 내용 |
+|---|---|
+| `inputs` | 가이드부터 시작하는 전달 순서(`position`), 입력 PNG의 절대 경로와 SHA-256. 레퍼런스에는 엑셀 칸 번호(`reference_slot`)도 기록합니다. |
+| `user_prompt`, `model_prompt` | 엑셀 원문과 모델에 보낼 문장. 2번 칸만 채운 행에는 두 번째 사진이 레퍼런스 2라고 명시합니다. |
+| `seed`, `output_path` | 기준 시드·편집 ID·반복 번호로 정한 시드와 실행 폴더 기준 출력 경로. 예를 들어 첫 반복의 5번 편집은 `images/r001/evening_cable.png`입니다. |
+
+계획 상단의 `model_dir`은 모델 폴더의 절대 경로이고 `generation`은 생성 옵션입니다. 생성 전에는 엑셀을 수정하고 같은 폴더에 다시 준비할 수 있습니다. 입력 검증과 새 계획 쓰기가 끝나면 `plan.json`을 한 번에 교체합니다. 실패하면 원인을 표시하고 이전 계획을 보존합니다.
 
 ### 3. 생성하고 결과 확인
+
+준비한 실행 폴더를 지정합니다. 입력 PNG의 SHA-256을 확인하고 로컬 모델을 한 번 적재합니다. 각 작업은 `plan.json`에 저장된 프롬프트·시드와 입력 순서로 독립 실행됩니다. 엑셀을 나중에 고쳐도 이번 실행에는 준비할 당시의 지시가 적용됩니다.
 
 ```bash
 vgen generate runs/living01
 ```
 
 ```text
-runs/living01/
-├── plan.json          # 작업별 가이드, 지시, 시드, 출력 경로
-├── run.json           # 계획 지문, 로컬 모델 파일별 SHA-256, 실행 환경
-├── manifest.jsonl     # 작업별 성공·실패, 사용한 가이드와 출력의 지문
-└── images/living01/r001/
-    ├── red.png
-    ├── wave.png
-    ├── floor.png
-    └── night.png
+성공 5장 · 실패 0건 · 저장 위치 runs/living01/images
 ```
 
-각 PNG를 가이드와 나란히 놓고 요청한 변화와 보존할 부분을 함께 봅니다. 예를 들어 `floor.png`에서는 바닥 재질과 전선의 양끝을, `night.png`에서는 창밖과 실내 조명, 책상 다리 뒤의 가림을 확인합니다.
+```text
+runs/living01/
+├── plan.json          # 작업별 가이드, 선택 레퍼런스, 프롬프트, 시드, 출력 경로
+├── run.json           # 계획 지문, 로컬 모델 파일별 SHA-256, 실행 환경
+├── manifest.jsonl     # 작업별 성공·실패·복구 시작 기록과 입출력 지문
+└── images/r001/
+    ├── red.png
+    ├── night.png
+    ├── add_cable.png
+    ├── evening_bg.png
+    └── evening_cable.png
+```
+
+첫 추론 전에 `run.json`에 계획의 SHA-256, 모델 파일별 SHA-256, 패키지 버전, GPU와 생성 설정을 저장합니다. 매 작업 직전에 입력 지문을 다시 확인합니다. PNG 저장과 검증이 끝나면 `manifest.jsonl`에 성공 한 줄을 추가합니다. 한 건의 추론이 실패하면 오류를 기록하고 다음 작업을 계속하며, 실패가 있으면 CLI의 종료 코드는 1입니다. 입력 PNG가 계획과 달라지면 해당 경로를 표시하고 추론 전에 멈춥니다.
+
+![각 행의 가이드, 선택한 두 레퍼런스와 FLUX가 생성한 다섯 편집 결과](docs/images/vgen-generate-comparison.png)
+
+아래는 새 클론에서 배포 예제의 기준 시드 42로 생성한 결과입니다. 각 편집은 ID와 반복 번호로 정한 시드를 사용했습니다. RTX 5060 Laptop GPU 8GB에서 BF16, 순차 CPU 오프로딩, 4스텝으로 측정했습니다. PyTorch 2.10.0+cu128이 보고한 총 GPU 메모리는 7,705.8 MiB입니다. Diffusers 0.38.0에서 모델 파일의 지문을 계산한 후 파이프라인을 적재하는 데 0.47초가 걸렸습니다. 표의 시간은 장당 추론부터 PNG 저장까지이고, 메모리는 PyTorch의 CUDA 최대 할당량과 예약량입니다.
+
+| 편집 ID | 결과에서 확인한 변화 | 시간 | 할당 / 예약 (MiB) |
+|---|---|---:|---:|
+| `red` | 전선과 단자 하우징이 빨개졌습니다. 바닥의 대각선 줄눈과 오른쪽 위 책상 모서리까지 빨개졌습니다. | 12.88초 | 1,393 / 1,468 |
+| `night` | 창밖이 어두워지고 소파 쪽에 등이 켜졌습니다. 전선은 책상 다리 양쪽에 남았습니다. | 12.33초 | 1,393 / 1,468 |
+| `add_cable` | 노란 양말 오른쪽에 검은 전선이 놓였습니다. 참고 사진의 완만한 S자보다 큰 고리가 생겼습니다. | 21.08초 | 1,560 / 1,874 |
+| `evening_bg` | 주황빛 벽과 조명, 나무 바닥이 반영됐습니다. 다리는 전선 가운데를 계속 가리지만 책상 상판의 높이와 전선 위치가 달라졌습니다. | 17.05초 | 1,394 / 1,590 |
+| `evening_cable` | 저녁 배경에서 양말이 사라지고 두 단자가 보이는 검은 전선이 생겼습니다. 오른쪽 다리는 남았고 바닥은 타일에서 마루로 바뀌었습니다. | 26.93초 | 1,561 / 2,386 |
+
+가이드는 1024×576, 전선 레퍼런스는 1024×1024, 방 레퍼런스는 1024×576으로 처리했습니다. 최종 다섯 장은 가이드 원본과 같은 **1672×941, 압축 레벨 0의 PNG**입니다. 이 실행의 계획·모델 파일 18개·입력·출력 지문을 대조했고, 실행 중 IPv4·IPv6 연결 호출은 0회였습니다.
 
 ### 4. 중단된 생성 이어가기
+
+Ctrl+C로 중단한 뒤 같은 실행 폴더를 지정합니다. 재개 단위는 편집 한 건입니다. 추론 도중 중단된 편집은 계획에 저장된 시드와 원본 입력으로 첫 스텝부터 다시 시작합니다.
 
 ```bash
 vgen resume runs/living01
 ```
 
-성공 기록과 PNG 지문이 일치하는 작업은 건너뜁니다. 예를 들어 네 장을 만든 뒤 `floor.png`만 손상됐다면 원본 가이드에서 `floor` 한 건만 복구합니다. PNG를 저장한 직후 성공 기록을 남기기 전에 중단된 작업도 다시 만듭니다. 추론이 남으면 가이드와 로컬 모델의 지문을 대조하고, 모두 마친 실행에서는 이미지 수와 저장 위치를 표시합니다.
+먼저 `plan.json`이 최초 실행 때 저장한 SHA-256과 일치하는지 확인합니다. 작업별로 최근 기록이 성공이고 PNG와 지문이 일치하면 건너뜁니다. 남은 작업이 있으면 해당 입력 사진과 최초 실행의 모델 파일 목록·SHA-256을 대조한 뒤 추론합니다. 파일이 달라졌다면 표시된 경로의 원본을 복원하고 같은 명령을 다시 실행하세요. 모든 PNG가 유효하면 GPU나 모델 파일 없이도 완료 수와 저장 위치를 확인할 수 있습니다.
+
+배포 예제로 재개를 확인하려면 새 실행 폴더에 계획을 준비합니다. 생성 중 첫 번째 `red.png`의 저장 완료가 표시되고 두 번째 편집의 추론이 시작되면 Ctrl+C를 누릅니다.
+
+```bash
+vgen prepare examples/living-room/scenarios.xlsx --out runs/interrupted
+vgen generate runs/interrupted
+```
+
+```bash
+vgen resume runs/interrupted
+vgen resume runs/interrupted
+```
+
+RTX 5060 Laptop GPU에서 `night`의 첫 노이즈 제거 스텝 직후 중단한 실행의 결과입니다. 첫 번째 재개 후에도 `red.png`의 SHA-256과 수정 시각은 같았습니다. 완성한 다섯 PNG의 SHA-256은 한 번에 생성한 결과와 일치했습니다.
+
+```text
+완료 PNG 5장 · 기존 1장 유지 · 이번 생성 4장 · 실패 0건 · 저장 위치 runs/interrupted/images
+완료 PNG 5장 · 기존 5장 유지 · 이번 생성 0장 · 실패 0건 · 저장 위치 runs/interrupted/images
+```
+
+#### PNG 한 장 복구하기
+
+예를 들어 다섯 장 중 `images/r001/evening_cable.png`가 사라지거나 다른 PNG로 바뀌면, 같은 실행 폴더에 `vgen resume`을 실행하세요. 해당 반복의 가이드 → 저녁 방 → 전선 순서와 저장된 시드로 한 장을 다시 만듭니다. 나머지 네 장은 내용과 수정 시각을 유지합니다. PNG가 저장됐어도 해당 작업의 성공 기록을 쓰기 전에 프로세스가 종료됐다면 같은 방식으로 복구합니다.
+
+기존 성공 결과를 복구할 때는 `manifest.jsonl`에 먼저 `repairing`을 기록합니다. 새 PNG를 검사하고 최종 위치에 저장한 뒤 `success`를 추가합니다. 두 기록 사이에 중단되면 같은 시드가 이전과 똑같은 PNG를 만들었더라도 다음 재개에서 해당 편집을 다시 실행합니다.
+
+RTX 5060 Laptop GPU에서 미기록·누락·손상 세 경우 모두 기존 4장 유지, 1장 생성으로 복구했습니다. 복구가 끝난 뒤의 재개 결과는 기존 5장 유지, 추가 생성 0장이었습니다. GPU 없이 같은 동작을 재현하려면 `.venv/bin/python -m unittest -v tests.test_recovery`를 실행하세요. 테스트에서는 두 번째 반복의 한 장을 복구할 때 첫 반복의 결과도 보존되는지 확인합니다. [복구 테스트](tests/test_recovery.py)
 
 ## 내 장면에 맞게 바꾸기
 
@@ -153,81 +208,6 @@ vgen resume runs/living01
 |---|---|---|
 | 슬리퍼 색만 바꾸기 | 슬리퍼가 놓인 가이드 한 장과 “슬리퍼를 노란색으로 바꿔 주세요”라는 편집 한 행을 적습니다. | 1회에 PNG 1장 |
 | 다리 뒤에 가려진 전선 비교 | 원하는 가림이 있는 가이드에 색과 형태 지시를 한 행씩 적습니다. | 1회에 같은 원본에서 PNG 2장 |
-| 여러 바닥에서 대량 변형 | 바닥이 다른 가이드 10장을 장면 시트에 적고 공통 편집 3개를 작성합니다. | 1회에 30장, `--repeat 100`이면 3,000장 |
+| 여러 바닥에서 대량 변형 | 가이드 10장에 색·형태·조명 편집을 각각 적용하려면 가이드마다 3행씩, 서로 다른 편집 ID로 총 30행을 적습니다. | 1회에 30장, `--repeat 100`이면 3,000장 |
 
-## 초기 파일럿 기록
-
-가이드 선택과 편집 범위를 정할 때 실행한 실험입니다. 아래 A·B·C 표기는 당시 연속 편집 파일럿의 파일 이름입니다.
-
-### 가이드에서 양말 지우기
-
-프로젝트에 포함된 거실 사진은 ImageGen으로 만든 합성 가이드입니다. 프로젝트 루트에서 아래 명령을 실행하면 로컬 FLUX가 왼쪽 앞의 노란 양말을 지웁니다. 편집 지시는 “노란 양말만 사진에서 깨끗하게 지워 주세요. 사진의 나머지 부분은 그대로 두세요.”입니다.
-
-```bash
-.venv/bin/python scripts/pilot_a.py
-```
-
-결과는 `runs/pilot-a/A.png`, 프롬프트·시드·버전·측정값은 같은 폴더의 `metrics.json`에 저장됩니다. 다시 실행할 때는 `--out runs/pilot-a-repeat`를 붙여 새 폴더에 저장합니다. 스크립트는 `HF_HUB_OFFLINE=1`과 `local_files_only=True`를 사용합니다.
-
-![왼쪽은 노란 양말이 놓인 합성 가이드, 오른쪽은 로컬 FLUX가 양말을 지운 결과](docs/images/pilot-a-comparison.webp)
-
-왼쪽이 입력, 오른쪽이 결과 A입니다. 양말이 있던 자리를 가로질러 대각선 줄눈이 이어지고, 오른쪽 책상 다리의 바닥 접점과 낮은 카메라 구도가 유지됩니다.
-
-RTX 5060 Laptop GPU 8GB에서 BF16, 순차 CPU 오프로딩, 시드 42, 4스텝, `guidance_scale=1.0`으로 측정했습니다. 모델 적재 시간은 같은 모델 파일을 앞서 읽은 상태에서 측정한 값입니다.
-
-| 가이드 → 모델 처리 → PNG 저장 | 모델 적재 | 추론 시작부터 PNG 저장까지 | PyTorch 최대 할당 / 최대 예약 GPU 메모리 |
-|---|---:|---:|---:|
-| 1672×941 → 1024×576 → 1672×941 | 0.71초 | 14.07초 | 1,393 / 1,468 MiB |
-
-같은 시드와 해상도에서 한글 지시 세 가지를 비교했습니다. 긴 지시에서는 양말이 남았고, 타일 바닥을 묘사한 지시에서는 줄눈이 하나 더 생겼습니다. 위의 두 문장을 기본값으로 정한 뒤 같은 환경에서 다시 실행해 PNG의 SHA-256이 일치하는 것을 확인했습니다. 재실행 중 IPv4·IPv6 연결 요청은 0건이었습니다.
-
-### 전선을 놓고 책상 다리 뒤로 옮기는 연속 편집
-
-프로젝트 루트에서 아래 두 명령을 실행하면 조건별 폴더에 각각 `A.png`, `B.png`, `C.png`와 `metrics.json`이 생깁니다. 한 번 실행할 때 로컬 모델을 한 번 적재합니다. 기존 결과를 보관한 채 다시 시도하려면 `--out`에 새 폴더 이름을 지정합니다.
-
-```bash
-.venv/bin/python scripts/pilot_abc.py --out runs/pilot-abc-no-ref
-.venv/bin/python scripts/pilot_abc.py --reference pilot/refs/black_cable.jpg --out runs/pilot-abc-with-ref
-```
-
-| 편집 | 참고 사진 없이 실행 | 참고 사진을 넣어 실행 |
-|---|---|---|
-| A · 양말 지우기 | 거실 가이드 | 같은 거실 가이드 |
-| B · 전선 놓기 | 이 실행의 A | 이 실행의 A, 전선 참고 사진 순서 |
-| C · 전선 가운데 가리기 | 이 실행의 B | 이 실행의 B |
-
-`metrics.json`의 `edits`에는 실제로 읽은 파일의 순서와 SHA-256, 편집 지시, 시드, 입력·출력 크기, 저장한 PNG의 SHA-256과 단계별 GPU 측정값이 기록됩니다. 전선 참고 사진은 검은 피복과 은색 USB-C 단자가 양끝에 보이도록 ImageGen으로 만든 정사각형 이미지입니다. [전선 참고 사진](pilot/refs/black_cable.jpg)
-
-<details>
-<summary>전선 참고 사진을 생성한 프롬프트</summary>
-
-Use case: product-mockup. A single square, photorealistic reference photograph of one short black USB-C to USB-C charging cable on a plain light warm gray matte tabletop. Entire cable fully in frame, left to right, forming one loose shallow S curve, uncoiled, no crossings. Both identical ends plainly visible, each with a small black molded housing and a short silver USB-C tip. Slender smooth round matte black rubber jacket with soft highlights. View from above, neutral soft daylight, subtle contact shadow, generous empty margin, sharp enough to identify each tip. Only the cable and the neutral surface. No text, no marks, no logos or other objects. This photo will be an appearance reference for a separate image edit.
-
-</details>
-
-#### GPU 실행 결과
-
-![위는 공통 가이드와 A, 가운데는 참고 사진 없이 만든 B와 C, 아래는 참고 사진을 넣은 B와 C](docs/images/pilot-abc-comparison.webp)
-
-두 실행의 A는 1단계 PNG와 파일 지문이 일치합니다. 두 B 모두 줄눈 옆에 검은 전선 한 가닥과 양끝이 보입니다. 참고 사진을 쓴 B에서는 검은 단자 하우징과 은색 팁이 보이고, 참고 사진을 생략한 B에서는 단자가 금색입니다. **C는 두 조건 모두 가림 기준 미통과입니다.** 앞쪽의 전선이 그대로 남았고, 모델은 나무 다리 앞면에 검은 선을 하나 더 그렸습니다.
-
-RTX 5060 Laptop GPU 8GB에서 BF16, 순차 CPU 오프로딩, 시드 42, 4스텝으로 실행했습니다. 거실은 1024×576, 전선 참고 사진은 1024×1024로 처리했고, 여섯 PNG 모두 가이드와 같은 1672×941입니다. 시간은 추론 시작부터 PNG 저장까지입니다. 메모리는 각 추론 직전에 집계를 초기화한 PyTorch 최대 할당 / 최대 예약 값입니다.
-
-| B의 참고 사진 | 모델 적재 | A | B | C | A·C 최대 메모리 | B 최대 메모리 |
-|---|---:|---:|---:|---:|---:|---:|
-| 없음 | 0.46초 | 13.09초 | 12.69초 | 12.65초 | 1,393 / 1,468 MiB | 1,393 / 1,468 MiB |
-| 사용 | 0.47초 | 13.13초 | 21.49초 | 12.69초 | 1,393 / 1,468 MiB | 1,560 / 1,874 MiB |
-
-#### C가 B와 비슷하게 보일 때
-
-참고 사진을 사용한 실행에서 C의 지시만 바꿔, 같은 B와 같은 시드로 전선 색상을 바꾸는 대조 실험을 했습니다.
-
-```bash
-.venv/bin/python scripts/pilot_abc.py --reference pilot/refs/black_cable.jpg \
-  --prompt-c '검은색 케이블의 피복 전체를 선명한 빨간색으로 바꿔 주세요. 케이블의 위치와 모양은 그대로 두세요.' \
-  --out runs/pilot-abc-control-red
-```
-
-![같은 B의 바닥 부분, 가림 지시로 생성한 C, 색 변경 지시로 생성한 빨간 전선 C](docs/images/pilot-c-control.webp)
-
-두 실행의 `edits.B.output_sha256`과 `edits.C.input_sha256[0]`가 모두 일치했습니다. 색 변경에서는 전선의 피복이 빨갛게 바뀌었고, 가림 지시에서는 가운데가 계속 보였습니다. 시드를 바꾼 추가 실험에서도 전선의 위치와 형상은 달라졌지만, 같은 다리 뒤에 가운데만 가리고 두 단자를 보존하는 결과는 확인하지 못했습니다.
+가림 관계나 물체 위치가 중요할 때는 그 배치가 이미 보이는 가이드를 사용하세요. 기존 전선을 책상 다리 뒤로 옮기는 지시는 두 조건 모두 실패했고, 이미 가려진 전선은 원래 가림을 유지하면서 피복 색이나 굴곡을 바꿀 수 있었습니다. [초기 실험 결과와 비교 이미지](docs/IMPLEMENTATION_STEPS.md)
