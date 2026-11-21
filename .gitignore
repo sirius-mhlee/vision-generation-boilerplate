@@ -2,7 +2,6 @@
 /inputs/
 /models/
 /runs/
-/pilot/
 
 # 배포 예제에는 워크북과 거기서 참조하는 PNG만 포함한다.
 /examples/living-room/*

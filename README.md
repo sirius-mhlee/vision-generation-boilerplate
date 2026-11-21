@@ -54,15 +54,7 @@ vgen generate runs/living01
 
 ### 1. 사진과 엑셀 준비
 
-**편집** 시트의 A~F열에 아래 제목을 순서대로 적습니다. `번호`에는 편집 건을 찾거나 정렬할 때 쓸 1 이상의 정수를 적습니다. 중간 번호를 건너뛰어도 됩니다. `편집 ID`는 파일 안에서 고유하며 결과 PNG의 파일명과 작업별 시드를 정하는 데 쓰입니다. 이미지 칸에는 엑셀 폴더 기준의 PNG **상대 경로**를 적습니다. 두 레퍼런스 칸은 각각 비워 둘 수 있습니다. 아래 명령은 저장소에 포함된 예제를 그대로 사용합니다. [예제 엑셀](examples/living-room/scenarios.xlsx)
-
-| 번호 | 편집 ID | 가이드 이미지 | 레퍼런스 이미지 1 | 레퍼런스 이미지 2 | 프롬프트 |
-|---:|---|---|---|---|---|
-| 1 | red | guides/living01_cable_behind.png | | | 전선의 검은 피복을 빨간색으로 바꿔 주세요. |
-| 2 | night | guides/living01_cable_behind.png | | | 낮 거실을 밤으로 바꾸고 책상 옆 조명을 켜 주세요. |
-| 3 | add_cable | guides/living01.png | refs/black_cable.png | | 레퍼런스 사진의 검은 USB-C 전선을 가이드의 노란 양말 옆에 놓아 주세요. |
-| 4 | evening_bg | guides/living01_cable_behind.png | refs/evening_room.png | | 레퍼런스 사진의 따뜻한 색감과 벽 재질을 가이드의 배경에 적용해 주세요. 앞쪽 전선과 책상은 같은 자리에 두세요. |
-| 5 | evening_cable | guides/living01.png | refs/evening_room.png | refs/black_cable.png | 첫 번째 사진의 노란 양말을 사진에서 완전히 지워 주세요. 그 자리에 레퍼런스 2에 보이는 검은 USB-C 케이블 하나만 납작하게 놓아 주세요. 앞쪽 타일에는 검은 선 한 가닥과 양 끝의 은색 단자 두 개만 보입니다. 배경은 레퍼런스 1의 주황빛 벽과 저녁 조명으로 바꿔 주세요. 오른쪽 책상 다리는 유지해 주세요. |
+**편집** 시트의 A~F열에 아래 제목을 순서대로 적습니다. `번호`에는 편집 건을 찾거나 정렬할 때 쓸 1 이상의 정수를 적습니다. 중간 번호를 건너뛰어도 됩니다. `편집 ID`는 파일 안에서 고유하며 결과 PNG의 파일명과 작업별 시드를 정하는 데 쓰입니다. 이미지 칸에는 엑셀 폴더 기준의 PNG **상대 경로**를 적습니다. 두 레퍼런스 칸은 각각 비워 둘 수 있습니다. [예제 엑셀](examples/living-room/scenarios.xlsx)
 
 다섯 행에 쓰는 가이드 두 장과 레퍼런스 두 장은 모두 프로젝트에 포함되어 있습니다. 입력은 PNG로 읽고, 예제 사진과 편집 결과는 압축 레벨 0으로 저장합니다. [검은 USB-C 전선](examples/living-room/refs/black_cable.png) · [저녁 방](examples/living-room/refs/evening_room.png)
 
