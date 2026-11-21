@@ -44,52 +44,37 @@ hf download black-forest-labs/FLUX.2-klein-4B \
 
 ## 정식 CLI 사용 예시
 
-아래 명령으로 배포 예제의 다섯 편집을 실행합니다. `prepare --out`에 새 실행 폴더를 지정하고 `generate`에는 그 폴더를 넘깁니다. 실험별로 여러 계획을 미리 준비할 수 있습니다.
-
-```bash
-vgen workbook examples/living-room/scenarios.xlsx
-vgen prepare examples/living-room/scenarios.xlsx --out runs/living01
-vgen generate runs/living01
-```
+배포 예제는 가이드 두 장과 레퍼런스 두 장으로 다섯 가지 편집을 만듭니다. 아래 예시는 프로젝트 루트에서 실행합니다.
 
 ### 1. 사진과 엑셀 준비
 
-**편집** 시트의 A~F열에 아래 제목을 순서대로 적습니다. `번호`에는 편집 건을 찾거나 정렬할 때 쓸 1 이상의 정수를 적습니다. 중간 번호를 건너뛰어도 됩니다. `편집 ID`는 파일 안에서 고유하며 결과 PNG의 파일명과 작업별 시드를 정하는 데 쓰입니다. 이미지 칸에는 엑셀 폴더 기준의 PNG **상대 경로**를 적습니다. 두 레퍼런스 칸은 각각 비워 둘 수 있습니다. [예제 엑셀](examples/living-room/scenarios.xlsx)
+**편집** 시트의 첫 행은 A열부터 `번호`, `편집 ID`, `가이드 이미지`, `레퍼런스 이미지 1`, `레퍼런스 이미지 2`, `프롬프트` 순서입니다. `번호`에는 1 이상의 정수를 적습니다. 중간 번호를 건너뛰어도 됩니다. 시트에서 고유한 `편집 ID`는 결과 파일명과 작업별 시드를 정합니다. 이미지 칸에는 엑셀 파일을 기준으로 한 PNG 상대 경로를 적습니다. 레퍼런스 칸은 각각 비워 둘 수 있습니다. [예제 엑셀](examples/living-room/scenarios.xlsx)
 
-다섯 행에 쓰는 가이드 두 장과 레퍼런스 두 장은 모두 프로젝트에 포함되어 있습니다. 입력은 PNG로 읽고, 예제 사진과 편집 결과는 압축 레벨 0으로 저장합니다. [검은 USB-C 전선](examples/living-room/refs/black_cable.png) · [저녁 방](examples/living-room/refs/evening_room.png)
+`red`와 `night`는 가이드만, `add_cable`과 `evening_bg`는 레퍼런스 한 장을 함께 사용합니다. `evening_cable`은 **가이드 → 저녁 방 → 전선** 순서로 세 장을 한 번에 전달합니다. 프롬프트에는 저녁 방에서 어떤 배경을 가져오고 전선으로 무엇을 바꿀지 적습니다. [저녁 방](examples/living-room/refs/evening_room.png) · [검은 USB-C 전선](examples/living-room/refs/black_cable.png)
 
-`red`와 `night`는 가이드만, `add_cable`과 `evening_bg`는 가이드와 레퍼런스 한 장을 읽습니다. `evening_cable`은 **가이드 → 레퍼런스 1(저녁 방) → 레퍼런스 2(전선)** 순서로 세 장을 모델에 한 번에 전달해 PNG 한 장을 만듭니다. 각 레퍼런스에서 무엇을 참고할지는 행의 프롬프트로 정합니다.
+시트와 PNG를 검사하면 각 행의 번호, 편집 ID, 입력 경로가 표시됩니다.
 
-예제를 검사하면 다섯 행의 번호와 편집 ID, 가이드와 레퍼런스 경로가 표시됩니다. 예를 들어 마지막 행은 다음과 같습니다.
+```bash
+vgen workbook examples/living-room/scenarios.xlsx
+```
+
+예제의 마지막 행은 두 레퍼런스를 모두 사용합니다.
 
 ```text
 5번 evening_cable (엑셀 6행) | 가이드=guides/living01.png | 레퍼런스 1=refs/evening_room.png | 레퍼런스 2=refs/black_cable.png
 ```
 
-자신의 예제는 폴더째 복사한 뒤 엑셀과 PNG를 바꾸세요. `inputs/`, `models/`, `runs/`는 Git에서 제외됩니다.
-
-```bash
-mkdir -p inputs
-cp -r examples/living-room inputs/my-room
-vgen workbook inputs/my-room/scenarios.xlsx
-```
-
-파이썬에서도 `from vgen.workbook import read_workbook`으로 같은 검사를 호출할 수 있습니다. `read_workbook("examples/living-room/scenarios.xlsx")`는 번호·편집 ID와 검증한 입력을 가진 행 목록을 반환합니다.
-
 ### 2. 생성할 계획 확인
 
-엑셀과 사진만 점검할 때는 `vgen workbook examples/living-room/scenarios.xlsx`를 사용합니다. 아래 명령을 바로 실행해도 같은 검사를 거친 뒤 계획을 저장합니다. 모델 가중치는 생성할 때 준비하면 됩니다.
+`prepare`는 시트와 PNG를 검사하고 실행 폴더에 `plan.json`을 저장합니다. 모델이나 GPU 없이 여러 계획을 미리 준비할 수 있습니다. 실험마다 `--out`에 다른 폴더를 지정하세요.
 
 ```bash
-vgen prepare examples/living-room/scenarios.xlsx \
-  --out runs/living01 --repeat 1 --seed 42 \
-  --model-dir "$PWD/models/FLUX.2-klein-4B"
+vgen prepare examples/living-room/scenarios.xlsx --out runs/living01
 ```
 
 ```text
 편집 5행 × 반복 1회 = 예상 PNG 5장
 저장 위치     runs/living01/images/r001/
-편집별 출력   red.png  night.png  add_cable.png  evening_bg.png  evening_cable.png
 계획 파일     runs/living01/plan.json
 ```
 
@@ -103,6 +88,8 @@ vgen prepare examples/living-room/scenarios.xlsx \
 | `--steps` | `4` | 편집 한 건의 노이즈 제거 횟수. 1 이상의 정수입니다. |
 | `--max-edge` | `1024` | 가이드와 레퍼런스를 축소할 때 긴 변의 상한(16~1024 px). 최종 PNG는 가이드 원본 크기로 저장합니다. |
 | `--model-dir` | `models/FLUX.2-klein-4B` | 추론에 사용할 로컬 모델 폴더. 상대 경로는 명령을 실행한 디렉터리 기준입니다. |
+
+`prepare`는 가이드와 각 레퍼런스를 축소하고 16의 배수로 패딩했을 때 FLUX가 받을 크기를 확인합니다. 짧은 변은 64 px 이상, 긴 변은 짧은 변의 8배 이하여야 합니다. 예를 들어 거실 가이드에 `--max-edge 64`를 지정하면 64×48 px이 됩니다. 이 경우 계획을 저장하기 전에 해당 엑셀 셀과 경로를 알려 줍니다.
 
 이번 버전은 `guidance_scale=1.0`, PNG 압축 레벨 0을 사용합니다. 저장된 계획의 옵션은 `generate`와 `resume`이 그대로 사용합니다.
 
@@ -159,7 +146,7 @@ runs/living01/
 
 ### 4. 중단된 생성 이어가기
 
-Ctrl+C로 중단한 뒤 같은 실행 폴더를 지정합니다. 재개 단위는 편집 한 건입니다. 추론 도중 중단된 편집은 계획에 저장된 시드와 원본 입력으로 첫 스텝부터 다시 시작합니다.
+Ctrl+C로 중단했다면 터미널에 표시되는 명령을 따르세요. 최초 실행이 기록된 뒤에는 같은 폴더에 `resume`을 실행합니다. 추론 도중 중단된 편집은 저장된 시드와 원본 입력으로 첫 스텝부터 다시 시작합니다.
 
 ```bash
 vgen resume runs/living01
@@ -167,23 +154,11 @@ vgen resume runs/living01
 
 먼저 `plan.json`이 최초 실행 때 저장한 SHA-256과 일치하는지 확인합니다. 작업별로 최근 기록이 성공이고 PNG와 지문이 일치하면 건너뜁니다. 남은 작업이 있으면 해당 입력 사진과 최초 실행의 모델 파일 목록·SHA-256을 대조한 뒤 추론합니다. 파일이 달라졌다면 표시된 경로의 원본을 복원하고 같은 명령을 다시 실행하세요. 모든 PNG가 유효하면 GPU나 모델 파일 없이도 완료 수와 저장 위치를 확인할 수 있습니다.
 
-배포 예제로 재개를 확인하려면 새 실행 폴더에 계획을 준비합니다. 생성 중 첫 번째 `red.png`의 저장 완료가 표시되고 두 번째 편집의 추론이 시작되면 Ctrl+C를 누릅니다.
-
-```bash
-vgen prepare examples/living-room/scenarios.xlsx --out runs/interrupted
-vgen generate runs/interrupted
-```
-
-```bash
-vgen resume runs/interrupted
-vgen resume runs/interrupted
-```
-
-RTX 5060 Laptop GPU에서 `night`의 첫 노이즈 제거 스텝 직후 중단한 실행의 결과입니다. 첫 번째 재개 후에도 `red.png`의 SHA-256과 수정 시각은 같았습니다. 완성한 다섯 PNG의 SHA-256은 한 번에 생성한 결과와 일치했습니다.
+예제에서 첫 결과인 `red.png`를 저장하고 `night` 추론 중 중단했을 때의 출력입니다. 처음 재개하면 네 장을 만들고, 완료 후 같은 명령을 실행하면 다섯 장의 상태만 확인합니다.
 
 ```text
-완료 PNG 5장 · 기존 1장 유지 · 이번 생성 4장 · 실패 0건 · 저장 위치 runs/interrupted/images
-완료 PNG 5장 · 기존 5장 유지 · 이번 생성 0장 · 실패 0건 · 저장 위치 runs/interrupted/images
+완료 PNG 5장 · 기존 1장 유지 · 이번 생성 4장 · 실패 0건 · 저장 위치 runs/living01/images
+완료 PNG 5장 · 기존 5장 유지 · 이번 생성 0장 · 실패 0건 · 저장 위치 runs/living01/images
 ```
 
 #### PNG 한 장 복구하기
@@ -192,9 +167,15 @@ RTX 5060 Laptop GPU에서 `night`의 첫 노이즈 제거 스텝 직후 중단�
 
 기존 성공 결과를 복구할 때는 `manifest.jsonl`에 먼저 `repairing`을 기록합니다. 새 PNG를 검사하고 최종 위치에 저장한 뒤 `success`를 추가합니다. 두 기록 사이에 중단되면 같은 시드가 이전과 똑같은 PNG를 만들었더라도 다음 재개에서 해당 편집을 다시 실행합니다.
 
-RTX 5060 Laptop GPU에서 미기록·누락·손상 세 경우 모두 기존 4장 유지, 1장 생성으로 복구했습니다. 복구가 끝난 뒤의 재개 결과는 기존 5장 유지, 추가 생성 0장이었습니다. GPU 없이 같은 동작을 재현하려면 `.venv/bin/python -m unittest -v tests.test_recovery`를 실행하세요. 테스트에서는 두 번째 반복의 한 장을 복구할 때 첫 반복의 결과도 보존되는지 확인합니다. [복구 테스트](tests/test_recovery.py)
-
 ## 내 장면에 맞게 바꾸기
+
+예제 폴더를 복사한 뒤 엑셀과 PNG를 바꾸세요. 이후 `prepare`에 복사한 엑셀과 새 실행 폴더를 지정합니다. `inputs/`, `models/`, `runs/`는 Git에서 제외됩니다.
+
+```bash
+mkdir -p inputs
+cp -r examples/living-room inputs/my-room
+vgen prepare inputs/my-room/scenarios.xlsx --out runs/my-room
+```
 
 | 만들고 싶은 결과 | 엑셀이나 명령에서 바꿀 부분 | 예상 결과 |
 |---|---|---|
@@ -203,3 +184,11 @@ RTX 5060 Laptop GPU에서 미기록·누락·손상 세 경우 모두 기존 4�
 | 여러 바닥에서 대량 변형 | 가이드 10장에 색·형태·조명 편집을 각각 적용하려면 가이드마다 3행씩, 서로 다른 편집 ID로 총 30행을 적습니다. | 1회에 30장, `--repeat 100`이면 3,000장 |
 
 가림 관계나 물체 위치가 중요할 때는 그 배치가 이미 보이는 가이드를 사용하세요. 기존 전선을 책상 다리 뒤로 옮기는 지시는 두 조건 모두 실패했고, 이미 가려진 전선은 원래 가림을 유지하면서 피복 색이나 굴곡을 바꿀 수 있었습니다. [초기 실험 결과와 비교 이미지](docs/IMPLEMENTATION_STEPS.md)
+
+## 테스트
+
+프로젝트 루트의 가상환경에서 실행합니다. 단위 테스트는 GPU 없이 동작합니다. NumPy를 설치하면 추론 전처리와 결과 PNG 크기 검사도 실행합니다.
+
+```bash
+python -m unittest discover -s tests -v
+```

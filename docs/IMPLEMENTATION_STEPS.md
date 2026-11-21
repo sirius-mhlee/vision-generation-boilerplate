@@ -32,7 +32,7 @@ RTX 5060 Laptop GPU 8GB에서 가이드와 레퍼런스 두 장을 BF16·순차 
 
 ## 3. 사람이 작성한 엑셀 읽기
 
-**구현·검증 완료.** 프로젝트 루트에서 `.venv/bin/vgen workbook examples/living-room/scenarios.xlsx`를 실행하면 각 편집의 번호·ID, 실제 엑셀 행, 가이드·레퍼런스 경로가 표시된다. `vgen.workbook.read_workbook()`은 검증된 행 목록을 반환하며 같은 입력 양식을 쓰는 파이썬 코드에서 호출할 수 있다. 테스트는 `.venv/bin/python -m unittest discover -s tests -v`로 실행한다. [예제 엑셀](../examples/living-room/scenarios.xlsx) · [입력 검증 코드](../vgen/workbook.py)
+**구현·검증 완료.** 프로젝트 루트에서 `.venv/bin/vgen workbook examples/living-room/scenarios.xlsx`를 실행하면 각 편집의 번호·ID, 실제 엑셀 행, 가이드·레퍼런스 경로가 표시된다. 테스트는 `.venv/bin/python -m unittest discover -s tests -v`로 실행한다. [예제 엑셀](../examples/living-room/scenarios.xlsx) · [입력 검증 코드](../vgen/workbook.py)
 
 원본 엑셀에서 `편집` 시트를 읽기 전용으로 연다. 번호·ID·가이드·프롬프트는 필수이며 두 레퍼런스 칸은 각각 선택이다. 번호는 1 이상의 정수이며 중간 번호를 건너뛰어도 된다. 이미지 경로는 엑셀 폴더 기준 PNG 상대 경로다. 예제 이미지와 생성 결과는 압축 레벨 0으로 저장한다. 완전히 빈 행을 건너뛰고 값이 있는 각 레퍼런스의 경로를 검사한다. 2번만 채운 행에서도 프롬프트의 ‘레퍼런스 2’가 그 사진을 가리키도록 번호를 보존한다.
 
@@ -44,7 +44,7 @@ RTX 5060 Laptop GPU 8GB에서 가이드와 레퍼런스 두 장을 BF16·순차 
 
 `pyproject.toml`에 기본 의존성인 openpyxl·Pillow와 `vgen` 진입점을 선언했다. PyTorch·Diffusers 등 추론 의존성은 `gpu` 선택 설치에 모았다.
 
-설치 후 `vgen workbook <엑셀 경로>`는 읽기 전용 검사 결과를 터미널에 표시한다. `vgen prepare`는 같은 `read_workbook()` 함수를 직접 호출해 검사를 수행하고 계획을 저장한다. 두 명령은 각각 독립적으로 실행할 수 있다. 이후 `generate`와 `resume`은 저장된 계획을 읽는다.
+`vgen workbook <엑셀 경로>`는 입력 검사 결과를 터미널에 표시한다. `vgen prepare`를 바로 실행해도 같은 검사를 거쳐 계획을 저장한다. 이후 `generate`와 `resume`은 저장된 계획을 읽는다.
 
 각 편집 행을 요청한 횟수만큼 반복한다. `plan.json`에 엑셀의 번호·편집 ID와 반복 번호, 가이드와 사용한 레퍼런스 각각의 번호·경로·SHA-256 및 전달 순서, 프롬프트 원문과 모델에 전달할 문장, 시드, 출력 경로를 저장한다. 모델에는 첫 이미지가 가이드이고 뒤의 각 이미지가 몇 번 레퍼런스인지 명시한다. 계획 형식 1의 시드는 `[기준 시드, 편집 ID, 반복 번호]`를 공백 없는 UTF-8 JSON으로 직렬화한 SHA-256의 상위 53비트다. 출력은 `images/r<반복 번호>/<편집 ID>.png`로 정하고 모델 경로와 생성 설정도 기록한다.
 

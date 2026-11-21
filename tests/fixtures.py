@@ -3,6 +3,8 @@ import unittest
 from hashlib import sha256
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from threading import Event
+from unittest.mock import patch
 
 from openpyxl import Workbook
 from PIL import Image
@@ -48,7 +50,7 @@ class WorkbookCase(unittest.TestCase):
         photos = self.folder / "사진"
         photos.mkdir()
         for name, color in (("guide", "gray"), ("room", "orange"), ("cable", "black")):
-            Image.new("RGB", (8, 4), color).save(photos / f"{name}.png")
+            Image.new("RGB", (128, 80), color).save(photos / f"{name}.png", compress_level=0)
         self.guide = "사진/guide.png"
         self.room = "사진/room.png"
         self.cable = "사진/cable.png"
@@ -61,3 +63,33 @@ class WorkbookCase(unittest.TestCase):
             sheet.append(row)
         book.save(self.xlsx)
         book.close()
+
+
+def copy_guide(_pipe, _device, sources, *, output, **kwargs):
+    output.write_bytes(sources[0])
+    return {}
+
+
+class FluxRunCase(WorkbookCase):
+    """Exercise the real model inventory and run lifecycle without GPU inference."""
+
+    def setUp(self):
+        super().setUp()
+        self.out = self.folder / "run"
+        self.model = self.folder / "model"
+        write_test_model(self.model)
+        self.enterContext(patch("vgen.flux._cuda_device", return_value="cuda"))
+        self.loader = self.enterContext(patch("vgen.flux.load_pipeline", return_value=(None, {})))
+        self.renderer = self.enterContext(patch("vgen.flux.render_png", side_effect=copy_guide))
+
+    def pause_model_load(self):
+        loading, release = Event(), Event()
+
+        def wait_loader(_model, _device):
+            loading.set()
+            if not release.wait(5):
+                raise RuntimeError("test timeout")
+            return None, {}
+
+        self.loader.side_effect = wait_loader
+        return loading, release

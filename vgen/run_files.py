@@ -3,8 +3,36 @@
 import json
 import os
 from contextlib import contextmanager
+from hashlib import sha256
 from pathlib import Path
-from tempfile import NamedTemporaryFile
+
+
+def image_output_path(edit_id: str, repeat_index: int) -> str:
+    """Return the run-relative PNG path stored in a plan."""
+    return f"images/r{repeat_index:03d}/{edit_id}.png"
+
+
+def check_output_filenames(folder: Path, jobs: list[dict]) -> None:
+    """Ask the destination filesystem whether each planned PNG name is usable."""
+    directories = {}
+    checked = set()
+    for job in jobs:
+        target = folder / job["output_path"]
+        parent = target.parent
+        if parent not in directories:
+            # Repeat directories often do not exist yet. Probe the nearest existing parent.
+            directories[parent] = next(path for path in target.parents if path.exists())
+        probe = directories[parent] / target.name
+        if probe in checked:
+            continue
+        checked.add(probe)
+        try:
+            probe.lstat()
+        except FileNotFoundError:
+            pass
+        except OSError as exc:
+            row = f"편집!B{job['sheet_row']} " if "sheet_row" in job else ""
+            raise OSError(f"{row}결과 PNG 경로를 사용할 수 없습니다. {target} ({exc.strerror})") from exc
 
 
 @contextmanager
@@ -38,9 +66,12 @@ def started(folder: Path) -> bool:
 
 @contextmanager
 def temporary_output(target: Path):
-    with NamedTemporaryFile(dir=target.parent, prefix=f".{target.stem}-",
-                            suffix=target.suffix, delete=False) as stream:
-        path = Path(stream.name)
+    # Writers hold the run lock. A retry can reclaim this target's staging file
+    # even after a hard stop. Its short name never appears in a PNG file listing.
+    key = sha256(os.fsencode(target.name)).hexdigest()
+    path = target.with_name(f".vgen-{key}.tmp")
+    path.unlink(missing_ok=True)
+    path.touch(mode=0o600, exist_ok=False)
     try:
         yield path
     finally:

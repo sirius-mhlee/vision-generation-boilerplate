@@ -1,7 +1,9 @@
 """Console entry point for vgen."""
 
 import argparse
+import os
 import sys
+from functools import partial
 from pathlib import Path
 
 from .generate import GenerateError, generate
@@ -10,7 +12,19 @@ from .prepare import (
 )
 from .resume import resume
 from .run_files import started
-from .workbook import WorkbookError, print_workbook
+from .workbook import SHEET, WorkbookError, read_workbook
+
+
+def _print_workbook(filename: Path) -> None:
+    edits = read_workbook(filename)
+    base = filename.absolute().parent
+    print(f"{SHEET} 시트 · 편집 요청 {len(edits)}건")
+    for edit in edits:
+        inputs = [f"가이드={os.path.relpath(edit.guide, base)}"]
+        for ref in edit.references:
+            inputs.append(f"레퍼런스 {ref.slot}={os.path.relpath(ref.path, base)}")
+        label = f"{edit.display_number}번 {edit.edit_id} (엑셀 {edit.row_number}행)"
+        print(f"{label} | {' | '.join(inputs)}")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -28,22 +42,23 @@ def main(argv: list[str] | None = None) -> int:
     planner.add_argument("--steps", type=int, default=DEFAULT_STEPS,
                          help="편집당 노이즈 제거 스텝 (기본값 %(default)s)")
     planner.add_argument("--max-edge", type=int, default=DEFAULT_MAX_EDGE,
-                         help="모델 입력의 긴 변, 16~1024 px (기본값 %(default)s)")
+                         help="패딩 전 입력 사진의 긴 변 상한, 16~1024 px (기본값 %(default)s)")
     generator = commands.add_parser("generate", help="저장된 계획으로 로컬 GPU에서 PNG 생성")
     generator.add_argument("run_dir", type=Path, help="plan.json이 있는 실행 폴더")
     resumer = commands.add_parser("resume", help="기존 PNG를 확인하고 남은 작업 이어가기")
     resumer.add_argument("run_dir", type=Path, help="생성을 시작한 실행 폴더")
     args = parser.parse_args(argv)
+    report = partial(print, flush=True)
     try:
         if args.command == "workbook":
-            print_workbook(args.workbook)
+            _print_workbook(args.workbook)
             return 0
         if args.command == "generate":
-            result = generate(args.run_dir, report=lambda line: print(line, flush=True))
+            result = generate(args.run_dir, report=report)
             print(f"성공 {result.succeeded}장 · 실패 {result.failed}건 · 저장 위치 {result.image_dir}")
             return int(result.failed > 0)
         if args.command == "resume":
-            result = resume(args.run_dir, report=lambda line: print(line, flush=True))
+            result = resume(args.run_dir, report=report)
             print(f"완료 PNG {result.skipped + result.succeeded}장 · 기존 {result.skipped}장 유지 · "
                   f"이번 생성 {result.succeeded}장 · 실패 {result.failed}건 · 저장 위치 {result.image_dir}")
             return int(result.failed > 0)
@@ -59,11 +74,10 @@ def main(argv: list[str] | None = None) -> int:
             return 130
         raise
     print(f"편집 {plan['edit_count']}행 × 반복 {plan['repeat']}회 = 예상 PNG {plan['job_count']}장")
-    folders = f"{args.out / 'images' / 'r001'}/"
-    if args.repeat > 1:
-        folders += f" … {args.out / 'images' / f'r{args.repeat:03d}'}/"
+    jobs = plan["jobs"]
+    folders = f"{args.out / Path(jobs[0]['output_path']).parent}/"
+    if plan["repeat"] > 1:
+        folders += f" … {args.out / Path(jobs[-1]['output_path']).parent}/"
     print(f"저장 위치     {folders}")
-    first_repeat = plan["jobs"][:plan["edit_count"]]
-    print("편집별 출력   " + "  ".join(Path(job["output_path"]).name for job in first_repeat))
     print(f"계획 파일     {args.out / 'plan.json'}")
     return 0

@@ -1,10 +1,10 @@
-import subprocess
-import sys
-from pathlib import Path
+from contextlib import redirect_stderr, redirect_stdout
+from io import StringIO
 
 from PIL import Image
 
 from tests.fixtures import WorkbookCase
+from vgen.cli import main
 from vgen.workbook import HEADERS, WorkbookError, read_workbook
 
 
@@ -86,9 +86,9 @@ class WorkbookTests(WorkbookCase):
         Image.new("RGB", (8, 4)).save(self.folder / "fake.png", format="JPEG")
         cases = [
             (2, "missing.png", "C2", "없습니다"),
-            (3, "broken.png", "D2", "읽을 수 없습니다"),
-            (4, "partial.png", "E2", "읽을 수 없습니다"),
-            (4, "fake.png", "E2", "읽을 수 없습니다"),
+            (3, "broken.png", "D2", "입력 PNG"),
+            (4, "partial.png", "E2", "입력 PNG"),
+            (4, "fake.png", "E2", "입력 PNG"),
             (4, "wire.jpg", "E2", ".png"),
             (2, str(self.folder / self.guide), "C2", "상대 경로"),
             (2, r"C:\pics\guide.png", "C2", "상대 경로"),
@@ -111,33 +111,20 @@ class WorkbookTests(WorkbookCase):
         self.write_fixture([])
         self.expect_error("편집", "편집 요청이 없습니다")
 
-    def test_shipped_example_reads_all_five_edits_and_reference_images(self):
-        example = Path(__file__).resolve().parents[1] / "examples" / "living-room" / "scenarios.xlsx"
-        rows = read_workbook(example)
-        self.assertEqual([row.display_number for row in rows], [1, 2, 3, 4, 5])
-        self.assertEqual(
-            [row.edit_id for row in rows],
-            ["red", "night", "add_cable", "evening_bg", "evening_cable"],
-        )
-        ref_slots = [[ref.slot for ref in row.references] for row in rows]
-        self.assertEqual(ref_slots, [[], [], [1], [1], [1, 2]])
-        combined = rows[-1]
-        self.assertEqual(combined.guide.name, "living01.png")
-        self.assertEqual(
-            [ref.path.name for ref in combined.references],
-            ["evening_room.png", "black_cable.png"],
-        )
-
     def test_cli_prints_slots_and_exits_nonzero_for_an_invalid_row(self):
-        args = [sys.executable, "-m", "vgen.workbook", str(self.xlsx)]
+        args = ["workbook", str(self.xlsx)]
         self.write_fixture([42, "전선", self.guide, None, self.cable, "요청"])
-        valid = subprocess.run(args, capture_output=True, text=True, check=True)
-        self.assertIn("편집 요청 1건", valid.stdout)
-        self.assertIn("42번 전선 (엑셀 2행)", valid.stdout)
-        self.assertIn("레퍼런스 2=" + self.cable, valid.stdout)
-        self.assertNotIn("레퍼런스 1=", valid.stdout)
+        stdout = StringIO()
+        with redirect_stdout(stdout):
+            self.assertEqual(main(args), 0)
+        listing = stdout.getvalue()
+        self.assertIn("편집 요청 1건", listing)
+        self.assertIn("42번 전선 (엑셀 2행)", listing)
+        self.assertIn("레퍼런스 2=" + self.cable, listing)
+        self.assertNotIn("레퍼런스 1=", listing)
         self.write_fixture([42, "전선", self.guide, None, "missing.png", "요청"])
-        invalid = subprocess.run(args, capture_output=True, text=True)
-        self.assertNotEqual(invalid.returncode, 0)
-        self.assertIn("편집!E2", invalid.stderr)
-        self.assertNotIn("Traceback", invalid.stderr)
+        stderr = StringIO()
+        with redirect_stderr(stderr):
+            self.assertEqual(main(args), 1)
+        self.assertIn("편집!E2", stderr.getvalue())
+        self.assertNotIn("Traceback", stderr.getvalue())

@@ -11,20 +11,18 @@ from time import perf_counter
 from PIL import Image, ImageOps
 
 from .model_files import check_model_files, file_stamp, fingerprint_model, model_paths
+from .png import fit_model_input
 
 RECORDED_PACKAGES = ("torch", "torchvision", "diffusers", "transformers", "accelerate",
                      "huggingface-hub", "safetensors", "Pillow", "numpy")
 
 
-def _local_only():
+def load_pipeline(model_dir: Path, device):
     # Set before importing libraries that cache Hub settings at import time.
     os.environ["HF_HUB_OFFLINE"] = "1"
     os.environ["HF_HUB_DISABLE_TELEMETRY"] = "1"
     os.environ["TRANSFORMERS_OFFLINE"] = "1"
 
-
-def load_pipeline(model_dir: Path, device):
-    _local_only()
     import torch
     from diffusers import Flux2KleinPipeline
 
@@ -39,7 +37,7 @@ def load_pipeline(model_dir: Path, device):
     torch.cuda.synchronize(device)
     load_seconds = perf_counter() - start
     return pipe, {
-        "model_dir": str(model_dir), "gpu": gpu.name,
+        "gpu": gpu.name,
         "gpu_total_mib": round(gpu.total_memory / 2**20, 1), "dtype": str(dtype),
         "offload": "sequential CPU offload", "cuda_runtime": torch.version.cuda,
         "python": platform.python_version(),
@@ -54,10 +52,10 @@ def prepare_image(source: bytes, max_edge: int):
     with Image.open(BytesIO(source), formats=("PNG",)) as image:
         rgb = ImageOps.exif_transpose(image).convert("RGB")
     original_size = rgb.size
-    rgb.thumbnail((max_edge, max_edge), Image.Resampling.LANCZOS)
+    padded_width, padded_height = fit_model_input(rgb, max_edge, Image.Resampling.LANCZOS)
     width, height = rgb.size
     # Preserve the scene aspect ratio. Only replicate edge pixels to meet the latent grid.
-    padding = ((0, -height % 16), (0, -width % 16), (0, 0))
+    padding = ((0, padded_height - height), (0, padded_width - width), (0, 0))
     pixels = np.pad(np.asarray(rgb), padding, mode="edge")
     return Image.fromarray(pixels), rgb.size, original_size
 
@@ -97,10 +95,8 @@ def render_png(pipe, device, sources: list[bytes], *, prompt, seed, generation, 
 
 
 def _cuda_device():
-    try:
-        import torch
-    except ImportError as exc:
-        raise ValueError("README의 설치 절차에 따라 GPU 추론 패키지를 설치하세요.") from exc
+    import torch
+
     if not torch.cuda.is_available():
         raise ValueError("PyTorch에서 CUDA GPU를 사용할 수 없습니다.")
     return torch.device("cuda", torch.cuda.current_device())
@@ -108,7 +104,6 @@ def _cuda_device():
 
 def open_flux(model_dir: Path, *, expected_files: list[dict] | None = None):
     paths = model_paths(model_dir)
-    _local_only()
     # On a fresh run, report a missing GPU before reading gigabytes of weights.
     # On resume, identify a changed model before importing GPU dependencies.
     device = _cuda_device() if expected_files is None else None

@@ -1,12 +1,8 @@
 """Read and validate the single-sheet vgen input without loading a model."""
 
-import argparse
-import os
-import sys
 import zlib
 from contextlib import closing
 from dataclasses import dataclass, field
-from hashlib import sha256
 from io import BytesIO
 from itertools import zip_longest
 from pathlib import Path, PureWindowsPath
@@ -17,6 +13,8 @@ from openpyxl import load_workbook
 from openpyxl.utils import get_column_letter
 from openpyxl.utils.exceptions import InvalidFileException
 from PIL import Image
+
+from .png import verified_png_sha256
 
 SHEET = "편집"
 HEADERS = (
@@ -90,7 +88,7 @@ def _text(name: str, cell) -> str:
     return value
 
 
-def _image_path(value: str, folder: Path, verified: dict[Path, str]) -> Path:
+def _image_path(value: str, folder: Path, verified: dict[Path, str], max_edge: int | None) -> Path:
     if PureWindowsPath(value).anchor:
         raise ValueError("엑셀 폴더 기준의 상대 경로를 입력하세요.")
     relative = Path(value.replace("\\", "/"))
@@ -100,22 +98,18 @@ def _image_path(value: str, folder: Path, verified: dict[Path, str]) -> Path:
     if path not in verified:
         try:
             # Validate and fingerprint the same bytes even if the path is replaced during prepare.
-            source = path.read_bytes()
-            with Image.open(BytesIO(source), formats=("PNG",)) as image:
-                image.verify()
-            with Image.open(BytesIO(source), formats=("PNG",)) as image:
-                image.load()
+            with BytesIO(path.read_bytes()) as source:
+                verified[path] = verified_png_sha256(source, max_edge=max_edge)
         except FileNotFoundError as exc:
             raise ValueError(f"이미지 파일이 없습니다. {path}") from exc
         except (
             OSError, EOFError, SyntaxError, ValueError, zlib.error, Image.DecompressionBombError,
         ) as exc:
-            raise ValueError(f"PNG 이미지를 읽을 수 없습니다. {path} ({exc})") from exc
-        verified[path] = sha256(source).hexdigest()
+            raise ValueError(f"입력 PNG를 확인하세요. {path} ({exc})") from exc
     return path
 
 
-def _read_sheet(sheet, folder: Path) -> list[EditRow]:
+def _read_sheet(sheet, folder: Path, max_edge: int | None) -> list[EditRow]:
     # Excel writers can omit or misreport the used range. Read the actual cells.
     sheet.reset_dimensions()
     rows = sheet.iter_rows()
@@ -143,7 +137,7 @@ def _read_sheet(sheet, folder: Path) -> list[EditRow]:
                 if name in (ID, PROMPT):
                     texts[name] = value
                 elif value:
-                    images[name] = _image_path(value, folder, verified)
+                    images[name] = _image_path(value, folder, verified, max_edge)
             except ValueError as exc:
                 address = f"{SHEET}!{get_column_letter(index + 1)}{row_number}"
                 raise WorkbookError(f"{address} ({name}, 값={raw!r}): {exc}") from exc
@@ -161,8 +155,10 @@ def _read_sheet(sheet, folder: Path) -> list[EditRow]:
     return edits
 
 
-def read_workbook(filename: str | Path) -> list[EditRow]:
-    """Read edits in sheet order, preserving the display number and each reference slot."""
+def read_workbook(filename: str | Path, *, max_edge: int | None = None) -> list[EditRow]:
+    """Read edits in sheet order. With max_edge, also verify each planned FLUX input size."""
+    if max_edge is not None and (type(max_edge) is not int or not 16 <= max_edge <= 1024):
+        raise WorkbookError("--max-edge는 16~1024 px 범위의 정수로 지정하세요.")
     path = Path(filename).absolute()
     layout = f"필요한 시트는 '{SHEET}'이며 첫 행의 열은 {', '.join(HEADERS)}입니다."
     try:
@@ -171,7 +167,7 @@ def read_workbook(filename: str | Path) -> list[EditRow]:
         ) as book:
             if SHEET not in {sheet.title for sheet in book.worksheets}:
                 raise WorkbookError(f"{path}: {layout}")
-            return _read_sheet(book[SHEET], path.parent)
+            return _read_sheet(book[SHEET], path.parent, max_edge)
     except WorkbookError:
         raise
     except FileNotFoundError as exc:
@@ -181,31 +177,3 @@ def read_workbook(filename: str | Path) -> list[EditRow]:
         TypeError, ValueError, zlib.error,
     ) as exc:
         raise WorkbookError(f"엑셀 파일을 읽을 수 없습니다. {path} ({exc})") from exc
-
-
-def print_workbook(filename: Path) -> None:
-    edits = read_workbook(filename)
-    base = filename.absolute().parent
-    print(f"{SHEET} 시트 · 편집 요청 {len(edits)}건")
-    for edit in edits:
-        inputs = [f"가이드={os.path.relpath(edit.guide, base)}"]
-        for ref in edit.references:
-            inputs.append(f"레퍼런스 {ref.slot}={os.path.relpath(ref.path, base)}")
-        label = f"{edit.display_number}번 {edit.edit_id} (엑셀 {edit.row_number}행)"
-        print(f"{label} | {' | '.join(inputs)}")
-
-
-def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="편집 시트와 각 행의 PNG 입력을 확인합니다.")
-    parser.add_argument("workbook", type=Path, help="편집 요청을 작성한 .xlsx 파일")
-    args = parser.parse_args(argv)
-    try:
-        print_workbook(args.workbook)
-    except WorkbookError as exc:
-        print(exc, file=sys.stderr)
-        return 1
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

@@ -4,7 +4,7 @@ import json
 from hashlib import sha256
 from pathlib import Path
 
-from .run_files import run_lock, started, write_json
+from .run_files import check_output_filenames, image_output_path, run_lock, started, write_json
 from .workbook import EditRow, WorkbookError, read_workbook
 
 DEFAULT_MODEL_DIR = Path("models/FLUX.2-klein-4B")
@@ -70,12 +70,10 @@ def prepare(
             raise PrepareError("--repeat, --seed, --steps, --max-edge에는 정수를 지정하세요.")
         if repeat < 1 or steps < 1:
             raise PrepareError("--repeat와 --steps는 각각 1 이상의 정수로 지정하세요.")
-        if not 16 <= max_edge <= 1024:
-            raise PrepareError("--max-edge는 16~1024 px 범위로 지정하세요.")
         _check_not_started(target.parent)
         if target.is_file() and workbook.is_file() and target.samefile(workbook):
             raise PrepareError("엑셀 파일과 계획 파일의 경로가 같습니다. 다른 실행 폴더를 지정하세요.")
-        requests = [_request(edit) for edit in read_workbook(workbook)]
+        requests = [_request(edit) for edit in read_workbook(workbook, max_edge=max_edge)]
         jobs = []
         for repeat_index in range(1, repeat + 1):
             for request in requests:
@@ -84,7 +82,7 @@ def prepare(
                     **request,
                     "repeat_index": repeat_index,
                     "seed": _job_seed(seed, edit_id, repeat_index),
-                    "output_path": f"images/r{repeat_index:03d}/{edit_id}.png",
+                    "output_path": image_output_path(edit_id, repeat_index),
                 })
         plan = {
             "schema_version": 1,
@@ -100,6 +98,7 @@ def prepare(
             },
             "jobs": jobs,
         }
+        check_output_filenames(target.parent, jobs)
         _save_plan(target, plan)
     except (WorkbookError, PrepareError, OSError) as exc:
         message = str(exc)

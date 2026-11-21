@@ -4,29 +4,18 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
 from pathlib import Path
-from threading import Event
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
-from tests.fixtures import WorkbookCase, snapshot, write_test_model
+from tests.fixtures import FluxRunCase, copy_guide, snapshot
 from vgen.cli import main
 from vgen.generate import GenerateError, generate
-from vgen.model_files import fingerprint_model, model_paths
 from vgen.prepare import prepare
 from vgen.resume import resume
 
 
-def render(sources, *, output, **kwargs):
-    output.write_bytes(sources[0])
-    return {"input_count": len(sources)}
-
-
-class ResumeTests(WorkbookCase):
+class ResumeTests(FluxRunCase):
     def setUp(self):
         super().setUp()
-        self.out = self.folder / "run"
-        self.model = self.folder / "model"
-        write_test_model(self.model)
-        self.metadata = {"backend": "test", "model_files": fingerprint_model(self.model, model_paths(self.model))}
         self.write_fixture(
             [1, "red", self.guide, None, None, "색 변경"],
             [2, "shape", self.room, None, None, "형태 변경"],
@@ -34,17 +23,17 @@ class ResumeTests(WorkbookCase):
         )
         self.plan = prepare(self.xlsx, self.out, model_dir=self.model)
         self.jobs = self.plan["jobs"]
-        self.loader = Mock(return_value=(render, self.metadata))
         self.journal = self.out / "manifest.jsonl"
         self.red = self.out / self.jobs[0]["output_path"]
 
     def interrupt_shape(self):
-        def interrupt(sources, **kwargs):
+        def interrupt(pipe, device, sources, **kwargs):
             if kwargs["seed"] == self.jobs[1]["seed"]:
                 raise KeyboardInterrupt
-            return render(sources, **kwargs)
-        with self.assertRaises(KeyboardInterrupt):
-            generate(self.out, load_backend=lambda _: (interrupt, self.metadata))
+            return copy_guide(pipe, device, sources, **kwargs)
+        with patch("vgen.flux.render_png", side_effect=interrupt), self.assertRaises(KeyboardInterrupt):
+            generate(self.out)
+        self.loader.reset_mock()
 
     def test_resume_preserves_red_and_sends_each_remaining_job_its_frozen_inputs(self):
         self.interrupt_shape()
@@ -52,13 +41,11 @@ class ResumeTests(WorkbookCase):
         frozen = {path: snapshot(path) for path in (self.red, self.out / "plan.json", self.out / "run.json")}
         self.xlsx.unlink()
         (self.folder / self.guide).unlink()  # Used only by the finished edit.
-        renderer = Mock(side_effect=render)
-        self.loader.return_value = renderer, self.metadata
-        result = resume(self.out, load_backend=self.loader)
+        result = resume(self.out)
         self.assertEqual((result.skipped, result.succeeded, result.failed), (1, 2, 0))
-        self.loader.assert_called_once_with(self.model)
-        for call, job in zip(renderer.call_args_list, self.jobs[1:], strict=True):
-            self.assertEqual(call.args[0], [Path(src["path"]).read_bytes() for src in job["inputs"]])
+        self.loader.assert_called_once_with(self.model, "cuda")
+        for call, job in zip(self.renderer.call_args_list, self.jobs[1:], strict=True):
+            self.assertEqual(call.args[2], [Path(src["path"]).read_bytes() for src in job["inputs"]])
             self.assertEqual((call.kwargs["seed"], call.kwargs["prompt"], call.kwargs["generation"]),
                              (job["seed"], job["model_prompt"], self.plan["generation"]))
         self.assertTrue(self.journal.read_bytes().startswith(first))
@@ -87,24 +74,23 @@ class ResumeTests(WorkbookCase):
             ("vae/config.json", None),
             ("tokenizer/added_tokens.json", b"{}"),
         )
-        with patch("vgen.flux.load_pipeline") as gpu:
-            for name, data in edits:
-                path = self.model / name
-                before = path.read_bytes() if path.exists() else None
-                with self.subTest(name=name):
-                    if data is None:
-                        path.unlink()
-                    else:
-                        path.write_bytes(data)
-                    with self.assertRaisesRegex(GenerateError, re.escape(str(path))):
-                        resume(self.out)
-                    self.assertEqual(self.journal.read_bytes(), saved)
-                    if before is None:
-                        path.unlink()
-                    else:
-                        path.write_bytes(before)
-        gpu.assert_not_called()
-        self.assertEqual(resume(self.out, load_backend=self.loader).succeeded, 2)
+        for name, data in edits:
+            path = self.model / name
+            before = path.read_bytes() if path.exists() else None
+            with self.subTest(name=name):
+                if data is None:
+                    path.unlink()
+                else:
+                    path.write_bytes(data)
+                with self.assertRaisesRegex(GenerateError, re.escape(str(path))):
+                    resume(self.out)
+                self.assertEqual(self.journal.read_bytes(), saved)
+                if before is None:
+                    path.unlink()
+                else:
+                    path.write_bytes(before)
+        self.loader.assert_not_called()
+        self.assertEqual(resume(self.out).succeeded, 2)
 
     def test_pending_input_change_and_changed_plan_stop_before_loading(self):
         self.interrupt_shape()
@@ -113,73 +99,71 @@ class ResumeTests(WorkbookCase):
         image = ref.read_bytes()
         ref.write_bytes(b"changed")
         with self.assertRaisesRegex(GenerateError, re.escape(str(ref))):
-            resume(self.out, load_backend=self.loader)
+            resume(self.out)
         ref.unlink()
         with self.assertRaisesRegex(GenerateError, re.escape(str(ref))):
-            resume(self.out, load_backend=self.loader)
+            resume(self.out)
         ref.write_bytes(image)
         plan = self.out / "plan.json"
         plan.write_bytes(plan.read_bytes() + b" ")
         with self.assertRaisesRegex(GenerateError, re.escape(str(plan))):
-            resume(self.out, load_backend=self.loader)
+            resume(self.out)
         plan.unlink()
         with self.assertRaisesRegex(GenerateError, "복원"):
-            resume(self.out, load_backend=self.loader)
+            resume(self.out)
         self.loader.assert_not_called()
         self.assertEqual(snapshot(self.journal), frozen)
 
     def test_cli_distinguishes_preparation_interruption_and_missing_run_record(self):
         with self.assertRaisesRegex(GenerateError, "vgen prepare"):
-            resume(self.folder, load_backend=self.loader)
+            resume(self.folder)
         errors = StringIO()
-        with redirect_stderr(errors), patch("vgen.flux.open_flux") as load:
+        with redirect_stderr(errors):
             self.assertEqual(main(["resume", str(self.out)]), 1)
             self.assertIn("vgen generate", errors.getvalue())
-            load.assert_not_called()
-            load.return_value = Mock(side_effect=KeyboardInterrupt), self.metadata
-            with redirect_stdout(StringIO()):
+            self.loader.assert_not_called()
+            with patch("vgen.flux.render_png", side_effect=KeyboardInterrupt), redirect_stdout(StringIO()):
                 self.assertEqual(main(["generate", str(self.out)]), 130)
         self.assertIn("vgen resume", errors.getvalue())
         self.journal.unlink()  # Interrupt between publishing run.json and opening the journal.
-        self.assertEqual(resume(self.out, load_backend=self.loader).succeeded, 3)
+        self.assertEqual(resume(self.out).succeeded, 3)
         (self.out / "run.json").unlink()
         with self.assertRaisesRegex(GenerateError, "run.json"):
-            resume(self.out, load_backend=self.loader)
+            resume(self.out)
 
     def test_retries_only_the_failed_repeat_and_keeps_previous_valid_results(self):
         plan = prepare(self.xlsx, self.out, repeat=2, model_dir=self.model)
         failed_job = plan["jobs"][4]
-        def fail_one(sources, **kwargs):
+        def fail_one(pipe, device, sources, **kwargs):
             if kwargs["seed"] == failed_job["seed"]:
                 raise RuntimeError("test failure")
-            return render(sources, **kwargs)
-        self.assertEqual(generate(self.out, load_backend=lambda _: (fail_one, self.metadata)).failed, 1)
+            return copy_guide(pipe, device, sources, **kwargs)
+        with patch("vgen.flux.render_png", side_effect=fail_one):
+            self.assertEqual(generate(self.out).failed, 1)
         kept = {path: snapshot(path) for path in self.out.glob("images/*/*.png")}
-        renderer = Mock(side_effect=render)
-        self.loader.return_value = renderer, self.metadata
-        result = resume(self.out, load_backend=self.loader)
+        result = resume(self.out)
         self.assertEqual((result.skipped, result.succeeded), (5, 1))
-        self.assertEqual(renderer.call_args.kwargs["seed"], failed_job["seed"])
+        self.assertEqual(self.renderer.call_args.kwargs["seed"], failed_job["seed"])
         self.assertEqual({path: snapshot(path) for path in kept}, kept)
         last = json.loads(self.journal.read_bytes().splitlines()[-1])
         self.assertEqual((last["edit_id"], last["repeat_index"], last["status"]), ("shape", 2, "success"))
 
     def test_failed_resume_reports_error_continues_later_edit_and_can_retry(self):
         self.interrupt_shape()
-        def fail_shape(sources, **kwargs):
+        def fail_shape(pipe, device, sources, **kwargs):
             if kwargs["seed"] == self.jobs[1]["seed"]:
                 kwargs["output"].write_bytes(b"partial")
                 raise RuntimeError("형태 편집 실패")
-            return render(sources, **kwargs)
+            return copy_guide(pipe, device, sources, **kwargs)
 
         console = StringIO()
-        with patch("vgen.flux.open_flux", return_value=(fail_shape, self.metadata)), redirect_stdout(console):
+        with patch("vgen.flux.render_png", side_effect=fail_shape), redirect_stdout(console):
             self.assertEqual(main(["resume", str(self.out)]), 1)
         self.assertIn("기존 1장 유지 · 이번 생성 1장 · 실패 1건", console.getvalue())
         self.assertFalse((self.out / self.jobs[1]["output_path"]).exists())
         entries = [json.loads(line) for line in self.journal.read_bytes().splitlines()]
         self.assertEqual([row["status"] for row in entries], ["success", "failed", "success"])
-        result = resume(self.out, load_backend=self.loader)
+        result = resume(self.out)
         self.assertEqual((result.skipped, result.succeeded, result.failed), (2, 1, 0))
 
     def test_partial_tail_is_replaced_and_full_record_without_newline_is_preserved(self):
@@ -187,14 +171,14 @@ class ResumeTests(WorkbookCase):
         first = self.journal.read_bytes()
         red_before = snapshot(self.red)
         self.journal.write_bytes(first + b'{"edit_id":"sh')
-        result = resume(self.out, load_backend=self.loader)
+        result = resume(self.out)
         self.assertEqual((result.skipped, result.succeeded), (1, 2))
         self.assertEqual(snapshot(self.red), red_before)
         self.assertTrue(self.journal.read_bytes().startswith(first))
         self.journal.write_bytes(first.rstrip(b"\n"))
         with self.journal.open("rb") as stream:
             self.assertEqual(json.load(stream)["edit_id"], "red")
-        result = resume(self.out, load_backend=self.loader)
+        result = resume(self.out)
         self.assertEqual((result.skipped, result.succeeded), (1, 2))
         self.assertEqual([json.loads(row)["edit_id"] for row in self.journal.read_bytes().splitlines()],
                          ["red", "shape", "both"])
@@ -206,36 +190,32 @@ class ResumeTests(WorkbookCase):
             with self.subTest(raw=raw[:10]):
                 self.journal.write_bytes(raw)
                 with self.assertRaisesRegex(GenerateError, "manifest.jsonl 1행"):
-                    resume(self.out, load_backend=self.loader)
+                    resume(self.out)
                 self.assertEqual(self.journal.read_bytes(), raw)
         self.loader.assert_not_called()
 
     def test_concurrent_resumers_recheck_outputs_after_taking_the_lock(self):
         self.interrupt_shape()
-        loading, release = Event(), Event()
-        def wait_loader(_):
-            loading.set()
-            if not release.wait(5):
-                raise RuntimeError("test timeout")
-            return render, self.metadata
+        loading, release = self.pause_model_load()
         with ThreadPoolExecutor(max_workers=2) as pool:
-            first = pool.submit(resume, self.out, load_backend=wait_loader)
+            first = pool.submit(resume, self.out)
             self.assertTrue(loading.wait(5))
-            second = pool.submit(resume, self.out, load_backend=self.loader)
+            second = pool.submit(resume, self.out)
             release.set()
             self.assertEqual(first.result().succeeded, 2)
             self.assertEqual(second.result().skipped, 3)
-        self.loader.assert_not_called()
+        self.loader.assert_called_once()
 
     def test_external_journal_change_during_model_loading_is_preserved(self):
         self.interrupt_shape()
         prefix = self.journal.read_bytes()
         updated = prefix + b'{"unfinished":'
-        renderer = Mock(side_effect=render)
-        def change_journal(_):
+        def change_journal(_model, _device):
             self.journal.write_bytes(updated)
-            return renderer, self.metadata
+            return None, {}
+
+        self.loader.side_effect = change_journal
         with self.assertRaisesRegex(GenerateError, "manifest.jsonl"):
-            resume(self.out, load_backend=change_journal)
-        renderer.assert_not_called()
+            resume(self.out)
+        self.renderer.assert_not_called()
         self.assertEqual(self.journal.read_bytes(), updated)

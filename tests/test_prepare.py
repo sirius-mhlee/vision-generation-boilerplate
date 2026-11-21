@@ -6,6 +6,8 @@ from io import StringIO
 from pathlib import Path
 from unittest.mock import patch
 
+from PIL import Image
+
 from tests.fixtures import WorkbookCase
 from vgen.cli import main
 from vgen.prepare import PrepareError, prepare
@@ -115,6 +117,24 @@ class PrepareTests(WorkbookCase):
             prepare(self.xlsx, self.out)
         self.assertFalse(self.out.exists())
 
+    def test_unusable_model_dimensions_report_the_cell_and_preserve_the_plan(self):
+        self.write_fixture([1, "edit", self.guide, None, self.cable, "두 번째 레퍼런스"])
+        cable = self.folder / self.cable
+        Image.new("RGB", (512, 49)).save(cable)  # Pads to 512 × 64, exactly 8:1.
+        prepare(self.xlsx, self.out, max_edge=512)
+        original = self.target.read_bytes()
+        Image.new("RGB", (513, 64)).save(cable)
+        for edge, cell, path, size in ((64, "C2", self.guide, "64×48"),
+                                       (1024, "E2", self.cable, "528×64")):
+            with self.subTest(edge=edge), redirect_stderr(StringIO()) as errors:
+                self.assertEqual(main(["prepare", str(self.xlsx), "--out", str(self.out),
+                                       "--max-edge", str(edge)]), 1)
+                for part in (f"편집!{cell}", path, size):
+                    self.assertIn(part, errors.getvalue())
+                self.assertEqual(self.target.read_bytes(), original)
+        with redirect_stdout(StringIO()):
+            self.assertEqual(main(["workbook", str(self.xlsx)]), 0)
+
     def test_concurrent_prepares_publish_one_complete_plan(self):
         with ThreadPoolExecutor(max_workers=2) as pool:
             futures = [pool.submit(prepare, self.xlsx, self.out, repeat=n) for n in (1, 2)]
@@ -124,16 +144,24 @@ class PrepareTests(WorkbookCase):
 
     def test_cli_workbook_and_shipped_five_row_plan(self):
         sample = Path(__file__).resolve().parents[1] / "examples" / "living-room" / "scenarios.xlsx"
-        stdout = StringIO()
-        with redirect_stdout(stdout):
+        with redirect_stdout(StringIO()) as listing:
             self.assertEqual(main(["workbook", str(sample)]), 0)
+        self.assertIn("5번 evening_cable (엑셀 6행)", listing.getvalue())
+        with redirect_stdout(StringIO()) as summary:
             self.assertEqual(main(["prepare", str(sample), "--out", str(self.out)]), 0)
-        self.assertIn("5번 evening_cable (엑셀 6행)", stdout.getvalue())
-        self.assertIn("편집 5행 × 반복 1회 = 예상 PNG 5장", stdout.getvalue())
+        self.assertEqual(summary.getvalue().splitlines(), [
+            "편집 5행 × 반복 1회 = 예상 PNG 5장",
+            f"저장 위치     {self.out / 'images' / 'r001'}/",
+            f"계획 파일     {self.target}",
+        ])
         plan = json.loads(self.target.read_text())
         self.assertEqual((plan["job_count"], plan["repeat"], plan["base_seed"]), (5, 1, 42))
         self.assertEqual(plan["generation"]["num_inference_steps"], 4)
-        self.assertEqual([len(job["inputs"]) for job in plan["jobs"]], [1, 1, 2, 2, 3])
+        self.assertEqual([job["display_number"] for job in plan["jobs"]], [1, 2, 3, 4, 5])
+        self.assertEqual([job["edit_id"] for job in plan["jobs"]],
+                         ["red", "night", "add_cable", "evening_bg", "evening_cable"])
+        self.assertEqual([[item["reference_slot"] for item in job["inputs"][1:]] for job in plan["jobs"]],
+                         [[], [], [1], [1], [1, 2]])
         last = plan["jobs"][-1]
         self.assertEqual(last["output_path"], "images/r001/evening_cable.png")
         self.assertEqual(last["seed"], 6720713048883403)

@@ -2,15 +2,13 @@
 
 import json
 import re
-from hashlib import file_digest
 from pathlib import Path, PurePosixPath
-
-from PIL import Image
 
 from .generate import (
     JOB_FIELDS, GenerateError, GenerationResult, load_renderer, read_plan, run_jobs, verify_inputs,
 )
 from .model_files import file_stamp
+from .png import matches_saved_png
 from .run_files import run_lock, started
 
 
@@ -74,22 +72,7 @@ def _read_history(path: Path, jobs: list[dict]) -> tuple[dict[str, str], int | N
     return successes, truncate_at, needs_newline
 
 
-def _matches_png(path: Path, expected: str | None) -> bool:
-    if expected is None or path.is_symlink() or not path.is_file():
-        return False
-    with path.open("rb") as stream:
-        if file_digest(stream, "sha256").hexdigest() != expected:
-            return False
-        stream.seek(0)
-        try:
-            with Image.open(stream, formats=("PNG",)) as image:
-                image.verify()
-        except (OSError, EOFError, SyntaxError, ValueError, Image.DecompressionBombError):
-            return False
-    return True
-
-
-def resume(run_dir: str | Path, *, load_backend=None, report=None) -> GenerationResult:
+def resume(run_dir: str | Path, *, report=None) -> GenerationResult:
     """Skip verified successes and append results for pending jobs under the run lock."""
     folder = Path(run_dir)
     if not folder.is_dir():
@@ -108,7 +91,7 @@ def resume(run_dir: str | Path, *, load_backend=None, report=None) -> Generation
             pending = []
             for job in jobs:
                 output = job["output_path"]
-                if not _matches_png(folder / output, successes.get(output)):
+                if not matches_saved_png(folder / output, successes.get(output)):
                     pending.append(job)
             skipped = len(jobs) - len(pending)
             if not pending:
@@ -117,7 +100,7 @@ def resume(run_dir: str | Path, *, load_backend=None, report=None) -> Generation
             verify_inputs(pending)
             if report:
                 report(f"기존 PNG {skipped}장 확인 · 재개할 작업 {len(pending)}건 · 로컬 모델 확인 중")
-            render, _ = load_renderer(folder, plan, plan_hash, load_backend, expected_files=model_files)
+            render, _ = load_renderer(folder, plan, plan_hash, expected_files=model_files)
             current_stamp = file_stamp(journal) if journal.exists() else None
             if current_stamp != original_stamp:
                 raise GenerateError(f"재개 준비 중 작업 기록이 변경됐습니다. {journal}")
