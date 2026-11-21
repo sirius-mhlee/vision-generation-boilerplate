@@ -1,6 +1,6 @@
 # vision-generation-boilerplate
 
-A boilerplate for offline image editing with FLUX.2 klein 4B using a single Excel sheet to specify a guide image, up to two reference images, and a prompt for each edit.
+A boilerplate for offline image editing with FLUX.2 klein 4B using a single Excel sheet to specify a guide image, up to two reference images, and a prompt for each edit
 
 `vgen`은 엑셀 한 시트에 한 줄씩 적은 요청을 로컬 GPU에서 실행하는 이미지 편집 CLI입니다. 각 행에서 **가이드 이미지**는 편집할 원본입니다. **레퍼런스 이미지**는 필요에 따라 한 장이나 두 장을 지정합니다. 예를 들어 거실 원본에 저녁 방 사진과 전선 사진을 함께 넣고, 배경을 바꾸면서 양말을 전선으로 교체하도록 요청할 수 있습니다. 같은 가이드를 여러 행에 쓰면 각 편집은 그 원본에서 독립적으로 시작합니다.
 
