@@ -1,3 +1,0 @@
-# From the repository root, install the CPU-only workbook and planning commands.
--c linux-py312-cu128.lock
--e .

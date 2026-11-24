@@ -19,7 +19,7 @@ python -m pip install -r requirements/bootstrap.lock
 엑셀을 검사하고 계획을 만드는 데에는 기본 설치만 있으면 됩니다. 같은 가상환경에 GPU 패키지를 추가할 수 있습니다.
 
 ```bash
-python -m pip install --no-build-isolation -r requirements/workbook.txt
+python -m pip install --no-build-isolation -c requirements/linux-py312-cu128.lock -e '.'
 ```
 
 이미지까지 생성하려면 CUDA 12.8 빌드를 사용할 수 있는 NVIDIA 드라이버와 GPU가 필요합니다. 다음 명령은 PyTorch 2.10.0+cu128, torchvision 0.25.0+cu128 및 추론에 필요한 전이 의존성을 검증한 버전으로 설치합니다. [패키지 버전과 설치 인덱스](requirements/linux-py312-cu128.lock) · [PyTorch 공식 CUDA 빌드](https://pytorch.org/get-started/previous-versions/)
